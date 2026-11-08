@@ -841,7 +841,10 @@ def process_document(pdf_bytes, progress=None, with_excel=False):
                 os.environ["GEMINI_API_KEY"] = api_key
         except Exception:
             pass
-    client = genai.Client(api_key=api_key) if api_key else genai.Client()
+    client_kwargs = {"http_options": {"api_version": "v1beta"}}
+    if api_key:
+        client_kwargs["api_key"] = api_key
+    client = genai.Client(**client_kwargs)
     ctx = None
     try:
         from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx, add_script_run_ctx
@@ -974,12 +977,19 @@ def run_streamlit():
 
     bar = st.progress(0.0, text="Translating medical text and applying executive styling...")
     t0 = time.time()
-    with st.spinner("Processing document layout and clinical terminology..."):
-        pdf_data, full_html, excel_data, df_fields, df_tables = process_document(
-            pdf_bytes,
-            progress=lambda f: bar.progress(f, text=f"Processed {f:.0%} of pages"),
-            with_excel=include_excel
-        )
+    try:
+        with st.spinner("Processing document layout and clinical terminology..."):
+            pdf_data, full_html, excel_data, df_fields, df_tables = process_document(
+                pdf_bytes,
+                progress=lambda f: bar.progress(f, text=f"Processed {f:.0%} of pages"),
+                with_excel=include_excel
+            )
+    except Exception as exc:
+        bar.empty()
+        st.error(f"❌ Error during document processing: {str(exc)}")
+        import traceback
+        st.code(traceback.format_exc(), language="python")
+        return
     bar.empty()
     duration = time.time() - t0
     st.success(f"✅ Translation completed in {duration:.1f} seconds!")

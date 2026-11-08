@@ -841,7 +841,10 @@ def process_document(pdf_bytes, progress=None, with_excel=False):
                 os.environ["GEMINI_API_KEY"] = api_key
         except Exception:
             pass
-    client = genai.Client(api_key=api_key) if api_key else genai.Client()
+    client_kwargs = {"http_options": {"api_version": "v1beta"}}
+    if api_key:
+        client_kwargs["api_key"] = api_key
+    client = genai.Client(**client_kwargs)
     ctx = None
     try:
         from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx, add_script_run_ctx

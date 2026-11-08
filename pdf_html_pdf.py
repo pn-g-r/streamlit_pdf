@@ -1100,20 +1100,33 @@ def run_streamlit():
     st.success(f"✅ Translation completed in {duration:.1f} seconds!")
 
     stem = os.path.splitext(file_name)[0]
+    safe_stem = re.sub(r'[\s]+', '_', stem.strip())
 
     # Action buttons
     if include_excel and excel_data:
         col_dl1, col_dl2 = st.columns(2)
         with col_dl1:
-            st.download_button("📥 Download English PDF", data=pdf_data, file_name=f"{stem}_EN.pdf",
+            st.download_button("📥 Download English PDF", data=pdf_data, file_name=f"{safe_stem}_EN.pdf",
                                mime="application/pdf", use_container_width=True)
         with col_dl2:
-            st.download_button("📊 Download Structured Excel (.xlsx)", data=excel_data, file_name=f"{stem}_data.xlsx",
+            st.download_button("📊 Download Structured Excel (.xlsx)", data=excel_data, file_name=f"{safe_stem}_data.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                use_container_width=True)
     else:
-        st.download_button("📥 Download English PDF", data=pdf_data, file_name=f"{stem}_EN.pdf",
+        st.download_button("📥 Download English PDF", data=pdf_data, file_name=f"{safe_stem}_EN.pdf",
                            mime="application/pdf", use_container_width=True)
+
+    # Mobile Safari direct link (bypasses iOS download manager issues)
+    b64_pdf = base64.b64encode(pdf_data).decode("ascii")
+    st.markdown(
+        f'<div style="margin: 6pt 0 12pt 0; text-align: center;">'
+        f'<a href="data:application/pdf;base64,{b64_pdf}" download="{safe_stem}_EN.pdf" target="_blank" '
+        f'style="display: inline-block; padding: 7pt 14pt; background-color: #f1f5f9; color: #1e3a8a; border: 1pt solid #cbd5e1; border-radius: 6pt; font-size: 9pt; font-weight: 600; text-decoration: none;">'
+        f'📱 Mobile / Safari Alternative: Tap here to open/save PDF directly'
+        f'</a>'
+        f'</div>',
+        unsafe_allow_html=True
+    )
 
     # Document Preview Tabs
     st.markdown("### 📄 Document Preview")

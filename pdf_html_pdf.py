@@ -1006,64 +1006,6 @@ def run_streamlit():
 
     st.set_page_config(page_title="Medical Document Translator", page_icon="🏥", layout="wide", initial_sidebar_state="expanded")
 
-    # Hide Streamlit toolbar, hamburger menu, and GitHub repo buttons while keeping sidebar intact
-    st.markdown(
-        """
-        <style>
-        /* Keep sidebar and its toggle button always accessible */
-        [data-testid="stSidebar"] {visibility: visible !important; display: block !important;}
-        [data-testid="stSidebarCollapseButton"] {visibility: visible !important; display: block !important;}
-        header {background: transparent !important;}
-        
-        /* Hide right-side header controls (menu, deploy button) */
-        #MainMenu {visibility: hidden !important; display: none !important;}
-        .stDeployButton, .stAppDeployButton {display: none !important; visibility: hidden !important;}
-        [data-testid="stToolbar"] {display: none !important; visibility: hidden !important;}
-        [data-testid="stDecoration"] {display: none !important; visibility: hidden !important;}
-        footer {visibility: hidden !important; display: none !important;}
-        
-        /* Hide bottom-right floating manage widgets and badges */
-        [data-testid="stStatusWidget"] {display: none !important; visibility: hidden !important;}
-        [data-testid="manage-app-button"] {display: none !important; visibility: hidden !important;}
-        #manage-app-button, button[kind="manageAppButton"] {display: none !important; visibility: hidden !important;}
-        [class*="viewerBadge"], [class*="styles_viewerBadge"], [class*="ProfileBadge"], [class*="FloatingMenu"], [class*="manageApp"] {
-            display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important;
-        }
-        .viewerBadge_container__1QSob, .styles_viewerBadge__1yB5_, .viewerBadge_link__1S137, .viewerBadge_text__1JaDK {
-            display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
-    # JavaScript DOM cleaner to remove viewer badges and GitHub repo links from the parent window
-    components.html(
-        """
-        <script>
-        function purgeBadges() {
-            try {
-                const targetDocs = [window.document, window.parent.document, window.top.document];
-                targetDocs.forEach(d => {
-                    if (!d) return;
-                    const els = d.querySelectorAll('[class*="viewerBadge"], [class*="styles_viewerBadge"], [data-testid="manage-app-button"], #manage-app-button, a[href*="github.com"]');
-                    els.forEach(el => {
-                        el.style.display = 'none';
-                        el.style.visibility = 'hidden';
-                        el.style.opacity = '0';
-                        el.style.pointerEvents = 'none';
-                    });
-                });
-            } catch(e) {}
-        }
-        purgeBadges();
-        setInterval(purgeBadges, 300);
-        </script>
-        """,
-        height=0,
-        width=0
-    )
-
     # Sidebar: API Key and Configuration
     with st.sidebar:
         st.header("⚙️ Configuration")

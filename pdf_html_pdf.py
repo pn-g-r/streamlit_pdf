@@ -1013,11 +1013,15 @@ def run_streamlit():
         #MainMenu {visibility: hidden !important; display: none !important;}
         header {visibility: hidden !important; display: none !important;}
         footer {visibility: hidden !important; display: none !important;}
-        .stAppDeployButton {display: none !important; visibility: hidden !important;}
+        .stDeployButton, .stAppDeployButton {display: none !important; visibility: hidden !important;}
         [data-testid="stToolbar"] {display: none !important; visibility: hidden !important;}
         [data-testid="stDecoration"] {display: none !important; visibility: hidden !important;}
         [data-testid="stStatusWidget"] {display: none !important; visibility: hidden !important;}
-        div[class*="viewerBadge"] {display: none !important; visibility: hidden !important;}
+        [data-testid="manage-app-button"] {display: none !important; visibility: hidden !important;}
+        #manage-app-button, button[kind="manageAppButton"] {display: none !important; visibility: hidden !important;}
+        div[class*="viewerBadge"], div[class*="ProfileBadge"], div[class*="FloatingMenu"], div[class*="manageApp"] {
+            display: none !important; visibility: hidden !important;
+        }
         </style>
         """,
         unsafe_allow_html=True

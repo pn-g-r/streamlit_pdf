@@ -1004,18 +1004,25 @@ def run_streamlit():
     import streamlit as st
     import streamlit.components.v1 as components
 
-    st.set_page_config(page_title="Medical Document Translator", page_icon="🏥", layout="wide")
+    st.set_page_config(page_title="Medical Document Translator", page_icon="🏥", layout="wide", initial_sidebar_state="expanded")
 
-    # Hide Streamlit header, toolbar, hamburger menu, and GitHub repo buttons
+    # Hide Streamlit toolbar, hamburger menu, and GitHub repo buttons while keeping sidebar intact
     st.markdown(
         """
         <style>
+        /* Keep sidebar and its toggle button always accessible */
+        [data-testid="stSidebar"] {visibility: visible !important; display: block !important;}
+        [data-testid="stSidebarCollapseButton"] {visibility: visible !important; display: block !important;}
+        header {background: transparent !important;}
+        
+        /* Hide right-side header controls (menu, deploy button) */
         #MainMenu {visibility: hidden !important; display: none !important;}
-        header {visibility: hidden !important; display: none !important;}
-        footer {visibility: hidden !important; display: none !important;}
         .stDeployButton, .stAppDeployButton {display: none !important; visibility: hidden !important;}
         [data-testid="stToolbar"] {display: none !important; visibility: hidden !important;}
         [data-testid="stDecoration"] {display: none !important; visibility: hidden !important;}
+        footer {visibility: hidden !important; display: none !important;}
+        
+        /* Hide bottom-right floating manage widgets and badges */
         [data-testid="stStatusWidget"] {display: none !important; visibility: hidden !important;}
         [data-testid="manage-app-button"] {display: none !important; visibility: hidden !important;}
         #manage-app-button, button[kind="manageAppButton"] {display: none !important; visibility: hidden !important;}

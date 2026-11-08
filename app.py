@@ -446,16 +446,15 @@ MANDATORY VISUAL LAYOUT & FORMATTING RULES:
         <div style="font-size: 14pt; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase;">REGARDING HEALTH STATUS</div>
       </div>`
 3. NUMBERED QUESTIONNAIRE & FORM ITEMS (Form 100 style):
-   - CRITICAL LINE SPACING & UNIFORMITY: Every single numbered item (items 1 through 11, 12 through 17, 18 through 20) MUST have comfortable, uniform vertical spacing.
-   - Distinct Question Label vs Patient Value:
-     * Wrap every item in `<div class="form-item" style="margin-bottom: 8pt; line-height: 1.45;">...</div>`.
+   - COMFORTABLE VERTICAL RHYTHM & BREATHING ROOM: Form #100 items are official questionnaire fields. Give them generous, uniform vertical spacing so they breathe elegantly and fill the page naturally:
+     * Wrap every item in `<div class="form-item" style="margin-bottom: 12pt; line-height: 1.5;">...</div>`.
      * For items where value is below the label:
-       `<div class="form-item" style="margin-bottom: 8pt; line-height: 1.45;">
-          <div style="color: #334155; font-size: 9.5pt; margin-bottom: 2pt;">1. Name of the issuing institution...:</div>
+       `<div class="form-item" style="margin-bottom: 12pt; line-height: 1.5;">
+          <div style="color: #334155; font-size: 9.5pt; margin-bottom: 3pt;">1. Name of the issuing institution...:</div>
           <div style="font-weight: 600; color: #0f172a; font-size: 10pt; margin-left: 8pt;">LLC Batumi Republican Clinical Hospital</div>
         </div>`
-     * For concise items: `<div class="form-item" style="margin-bottom: 8pt; line-height: 1.45;"><span style="color: #334155;">3. Patient's Name and Surname:</span> <b style="color: #0f172a; margin-left: 6pt;">Anastasia Bolgova</b></div>`
-     * Sub-items (like 8. Dates: a, b, c, d): indent with `<div style="margin-left: 14pt; line-height: 1.4;">...</div>`.
+     * For concise items: `<div class="form-item" style="margin-bottom: 12pt; line-height: 1.5;"><span style="color: #334155;">3. Patient's Name and Surname:</span> <b style="color: #0f172a; margin-left: 6pt;">Anastasia Bolgova</b></div>`
+     * Sub-items (like 8. Dates: a, b, c, d): indent with `<div style="margin-left: 14pt; line-height: 1.45; margin-bottom: 4pt;">...</div>`.
      * Recommendations (Item 17): wrap recommendation text in `<div class="box" style="margin-left: 8pt; border: 1px solid #cbd5e1; padding: 6pt 10pt; background: #f8fafc; border-radius: 4pt;">...</div>`.
 4. CLINICAL DATA TABLES & FINANCIAL SUMMARY GRIDS:
    - Invoices, CBC laboratory panels, and procedural tests MUST use `<table class="data-table">`.
@@ -663,7 +662,7 @@ def build_html(fragments, profile):
         background-color: #ffffff;
         width: {profile['page_w_mm']:.1f}mm;
         max-width: 100%;
-        min-height: {profile['page_h_mm']:.1f}mm;
+        min-height: auto;
         padding: {t:.1f}mm {r:.1f}mm {b:.1f}mm {l:.1f}mm;
         margin: 0 auto 24px auto;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05);
@@ -686,12 +685,14 @@ def build_html(fragments, profile):
     
     /* Form items & Questionnaires (Form 100) */
     .form-item {{
-      break-inside: avoid;
-      margin-bottom: 9pt;
-      line-height: 1.45;
+      break-inside: auto;
+      margin-bottom: 12pt;
+      line-height: 1.5;
     }}
     .form-item > span:first-child, .form-item > div:first-child {{
       color: #334155;
+      font-size: 9.5pt;
+      margin-bottom: 2pt;
     }}
     .signature-block, .box, .diag-block {{
       break-inside: avoid;

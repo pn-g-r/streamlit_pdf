@@ -562,14 +562,17 @@ def _generate(client, contents, config, retries=3):
 def translate_page(client, page, total_pages):
     raw_text = page.get("raw_text", "").strip()
     if raw_text and any(ord(c) >= 0x10A0 and ord(c) <= 0x10FF for c in raw_text):
-        trans_contents = [
-            types.Part.from_bytes(data=page["preview_png"], mime_type="image/png"),
-            f"Georgian page text:\n{raw_text}\n\nTranslate this entire medical page into professional clinical English.",
-        ]
+        trans_contents = []
+        # If text is sparse or lines are missing, include visual page image as OCR fallback
+        if len(raw_text) < 40 or not page.get("lines"):
+            trans_contents.append(types.Part.from_bytes(data=page["preview_png"], mime_type="image/png"))
+        trans_contents.append(f"Georgian page text:\n{raw_text}\n\nTranslate this entire medical page into professional clinical English.")
+
         trans_config = types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT_TRANSLATION,
             temperature=0.0,
-            max_output_tokens=32768,
+            max_output_tokens=8192,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
         )
         english_translation = _generate(client, trans_contents, trans_config)
     else:
@@ -586,17 +589,15 @@ def translate_page(client, page, total_pages):
         "and properly structured tables. Use ONLY the English translation—zero Georgian script in output."
     )
 
-    single_pdf = page.get("pdf")
     html_contents = [
         types.Part.from_bytes(data=page["preview_png"], mime_type="image/png"),
+        builder_prompt,
     ]
-    if single_pdf:
-        html_contents.append(types.Part.from_bytes(data=single_pdf, mime_type="application/pdf"))
-    html_contents.append(builder_prompt)
     html_config = types.GenerateContentConfig(
         system_instruction=SYSTEM_PROMPT_HTML_BUILDER,
         temperature=0.0,
-        max_output_tokens=32768,
+        max_output_tokens=16384,
+        thinking_config=types.ThinkingConfig(thinking_budget=0),
     )
     fragment = _generate(client, html_contents, html_config)
     return _clean_fragment(fragment)
@@ -826,9 +827,10 @@ def extract_excel(client, pdf_bytes):
         types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT_EXCEL,
             temperature=0.0,
-            max_output_tokens=65536,
+            max_output_tokens=32768,
             response_mime_type="application/json",
             response_schema=UniversalDocumentData,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
         ),
     )
     data = json.loads(text)
@@ -914,7 +916,7 @@ def translate_to_pdf(client, pdf_bytes, progress=None):
             add_script_run_ctx(ctx=ctx)
         return translate_page(client, p, len(pages))
 
-    with cf.ThreadPoolExecutor(max_workers=min(4, len(pages))) as ex:
+    with cf.ThreadPoolExecutor(max_workers=min(8, len(pages))) as ex:
         futs = {ex.submit(_worker, i, p): i for i, p in enumerate(pages)}
         for done, fut in enumerate(cf.as_completed(futs), 1):
             i = futs[fut]

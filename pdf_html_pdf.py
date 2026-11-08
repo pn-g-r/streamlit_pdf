@@ -1018,11 +1018,10 @@ def run_streamlit():
     # Sidebar: API Key and Configuration
     with st.sidebar:
         st.header("⚙️ Configuration")
-        user_key_side = st.text_input("Gemini API Key", value=saved_key, type="password", key="side_key",
-                                      help="Leave blank if set in environment or Streamlit Secrets.")
-        if user_key_side:
-            os.environ["GEMINI_API_KEY"] = user_key_side
-            saved_key = user_key_side
+        user_key = st.text_input("Gemini API Key", value=saved_key, type="password", key="side_key",
+                                 help="Leave blank if set in environment or Streamlit Secrets.")
+        if user_key:
+            os.environ["GEMINI_API_KEY"] = user_key
 
         st.markdown("---")
         st.markdown("### 📋 Sample Documents")
@@ -1031,68 +1030,33 @@ def run_streamlit():
         if os.path.exists(sample_dir):
             sample_files = [f for f in os.listdir(sample_dir) if f.lower().endswith(".pdf")]
         
-        selected_sample_side = None
+        selected_sample = None
         if sample_files:
-            chosen_side = st.selectbox("Quick Test with Sample PDF:", ["None (Upload my own)"] + sample_files, key="side_sample")
-            if chosen_side != "None (Upload my own)":
-                selected_sample_side = os.path.join(sample_dir, chosen_side)
-                st.caption(f"Loaded: `{chosen_side}`")
+            chosen = st.selectbox("Quick Test with Sample PDF:", ["None (Upload my own)"] + sample_files, key="side_sample")
+            if chosen != "None (Upload my own)":
+                selected_sample = os.path.join(sample_dir, chosen)
+                st.caption(f"Loaded: `{chosen}`")
 
         st.markdown("---")
         st.info("🇬🇪 **Georgian ➔ 🇬🇧 English**\n\nTransforms complex medical invoices, Form #100 certificates, and laboratory panels into certified-grade English PDFs.")
 
     st.title("🏥 Georgian Medical Document Translation Pipeline")
     st.write("Convert complex Georgian clinical documents into professional English PDFs with executive medical styling.")
-    st.caption("🚀 Version 2.1 — Turnkey Medical Pipeline")
-
-    # Always-visible Gemini API Key input directly on the main page
-    cur_key = os.environ.get("GEMINI_API_KEY", "")
-    with st.container():
-        col_k1, col_k2 = st.columns([3, 1])
-        with col_k1:
-            entered_key = st.text_input("🔑 Gemini API Key:", value=cur_key, type="password", key="main_key_field",
-                                        help="Enter your Google AI Studio API key here.")
-        with col_k2:
-            st.write("")
-            st.write("")
-            if entered_key and entered_key != cur_key:
-                os.environ["GEMINI_API_KEY"] = entered_key
-                st.success("Key applied!")
-            elif cur_key:
-                st.info("API Key active")
-            else:
-                st.warning("Key needed")
 
     # Input selection: upload or sample
     pdf_bytes = None
     file_name = "translated_document"
 
-    sample_dir = os.path.join(os.path.dirname(__file__), "sample_documents")
-    sample_files = []
-    if os.path.exists(sample_dir):
-        sample_files = [f for f in os.listdir(sample_dir) if f.lower().endswith(".pdf")]
-
-    col_inp1, col_inp2 = st.columns([1, 1])
-    with col_inp1:
-        chosen_main = st.selectbox("Option A: Choose a Built-in Sample PDF", ["-- Select sample --"] + sample_files, key="main_sample")
-    with col_inp2:
-        uploaded_file = st.file_uploader("Option B: Upload your own PDF", type=["pdf"])
-
-    if uploaded_file is not None:
-        pdf_bytes = uploaded_file.read()
-        file_name = uploaded_file.name
-        st.success(f"Selected uploaded document: **{file_name}**")
-    elif chosen_main != "-- Select sample --":
-        selected_sample = os.path.join(sample_dir, chosen_main)
+    if selected_sample and os.path.exists(selected_sample):
         with open(selected_sample, "rb") as sf:
             pdf_bytes = sf.read()
         file_name = os.path.basename(selected_sample)
         st.success(f"Selected sample document: **{file_name}**")
-    elif selected_sample_side and os.path.exists(selected_sample_side):
-        with open(selected_sample_side, "rb") as sf:
-            pdf_bytes = sf.read()
-        file_name = os.path.basename(selected_sample_side)
-        st.success(f"Selected sidebar sample: **{file_name}**")
+    else:
+        uploaded_file = st.file_uploader("Upload a Medical PDF (Invoice, Form #100, Lab Report)", type=["pdf"])
+        if uploaded_file is not None:
+            pdf_bytes = uploaded_file.read()
+            file_name = uploaded_file.name
 
     if not pdf_bytes:
         st.info("👆 Please upload a medical PDF above or select a sample document from the sidebar to begin.")

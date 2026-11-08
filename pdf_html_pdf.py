@@ -1043,15 +1043,25 @@ def run_streamlit():
 
     st.title("🏥 Georgian Medical Document Translation Pipeline")
     st.write("Convert complex Georgian clinical documents into professional English PDFs with executive medical styling.")
+    st.caption("🚀 Version 2.1 — Turnkey Medical Pipeline")
 
-    # Main page API key entry fallback (so you are NEVER blocked if sidebar is closed)
-    if not os.environ.get("GEMINI_API_KEY"):
-        with st.expander("🔑 Enter Gemini API Key to Begin", expanded=True):
-            user_key_main = st.text_input("Gemini API Key", type="password", key="main_key",
-                                          help="Paste your Google AI Studio API key here.")
-            if user_key_main:
-                os.environ["GEMINI_API_KEY"] = user_key_main
-                st.rerun()
+    # Always-visible Gemini API Key input directly on the main page
+    cur_key = os.environ.get("GEMINI_API_KEY", "")
+    with st.container():
+        col_k1, col_k2 = st.columns([3, 1])
+        with col_k1:
+            entered_key = st.text_input("🔑 Gemini API Key:", value=cur_key, type="password", key="main_key_field",
+                                        help="Enter your Google AI Studio API key here.")
+        with col_k2:
+            st.write("")
+            st.write("")
+            if entered_key and entered_key != cur_key:
+                os.environ["GEMINI_API_KEY"] = entered_key
+                st.success("Key applied!")
+            elif cur_key:
+                st.info("API Key active")
+            else:
+                st.warning("Key needed")
 
     # Input selection: upload or sample
     pdf_bytes = None

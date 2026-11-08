@@ -990,15 +990,18 @@ def run_streamlit():
     stem = os.path.splitext(file_name)[0]
 
     # Action buttons
-    col_dl1, col_dl2 = st.columns(2 if (include_excel and excel_data) else 1)
-    with col_dl1:
-        st.download_button("📥 Download English PDF", data=pdf_data, file_name=f"{stem}_EN.pdf",
-                           mime="application/pdf", use_container_width=True)
     if include_excel and excel_data:
+        col_dl1, col_dl2 = st.columns(2)
+        with col_dl1:
+            st.download_button("📥 Download English PDF", data=pdf_data, file_name=f"{stem}_EN.pdf",
+                               mime="application/pdf", use_container_width=True)
         with col_dl2:
             st.download_button("📊 Download Structured Excel (.xlsx)", data=excel_data, file_name=f"{stem}_data.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                use_container_width=True)
+    else:
+        st.download_button("📥 Download English PDF", data=pdf_data, file_name=f"{stem}_EN.pdf",
+                           mime="application/pdf", use_container_width=True)
 
     # Document Preview Tabs
     st.markdown("### 📄 Document Preview")

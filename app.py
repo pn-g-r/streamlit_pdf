@@ -1006,7 +1006,7 @@ def run_streamlit():
     import streamlit as st
     import streamlit.components.v1 as components
 
-    st.set_page_config(page_title="Medical Document Translator", page_icon="🏥", layout="wide", initial_sidebar_state="expanded")
+    st.set_page_config(page_title="სამედიცინო დოკუმენტების მთარგმნელი", page_icon="🏥", layout="wide", initial_sidebar_state="expanded")
 
     saved_key = os.environ.get("GEMINI_API_KEY", "")
     if not saved_key:
@@ -1019,14 +1019,14 @@ def run_streamlit():
 
     # Sidebar: API Key and Configuration
     with st.sidebar:
-        st.header("⚙️ Configuration")
-        user_key = st.text_input("Gemini API Key", value=saved_key, type="password", key="side_key",
-                                 help="Leave blank if set in environment or Streamlit Secrets.")
+        st.header("⚙️ პარამეტრები")
+        user_key = st.text_input("Gemini API გასაღები", value=saved_key, type="password", key="side_key",
+                                 help="დატოვეთ ცარიელი, თუ გასაღები მითითებულია გარემოში ან Streamlit Secrets-ში.")
         if user_key:
             os.environ["GEMINI_API_KEY"] = user_key
 
         st.markdown("---")
-        st.markdown("### 📋 Sample Documents")
+        st.markdown("### 📋 სატესტო დოკუმენტები")
         sample_dir = os.path.join(os.path.dirname(__file__), "sample_documents")
         sample_files = []
         if os.path.exists(sample_dir):
@@ -1034,17 +1034,17 @@ def run_streamlit():
         
         selected_sample = None
         if sample_files:
-            chosen = st.selectbox("Quick Test with Sample PDF:", ["None (Upload my own)"] + sample_files, key="side_sample")
-            if chosen != "None (Upload my own)":
+            chosen = st.selectbox("სწრაფი ტესტირება ნიმუშით:", ["არცერთი (ავტვირთავ ჩემს ფაილს)"] + sample_files, key="side_sample")
+            if chosen != "არცერთი (ავტვირთავ ჩემს ფაილს)":
                 selected_sample = os.path.join(sample_dir, chosen)
-                st.caption(f"Loaded: `{chosen}`")
+                st.caption(f"ჩატვირთულია: `{chosen}`")
 
         st.markdown("---")
-        st.info("🇬🇪 **Georgian ➔ 🇬🇧 English**\n\nTransforms complex medical invoices, Form #100 certificates, and laboratory panels into certified-grade English PDFs.")
+        st.info("🇬🇪 **ქართული ➔ 🇬🇧 ინგლისური**\n\nთარგმნის სამედიცინო ინვოისებს, ფორმა № IV-100/ა ცნობებსა და ლაბორატორიულ კვლევებს საერთაშორისო სტანდარტის ინგლისურ PDF დოკუმენტად.")
         st.markdown("<div style='text-align: center; color: #64748b; font-size: 0.85em; margin-top: 15px;'>Made with ❤️ by Gigi</div>", unsafe_allow_html=True)
 
-    st.title("🏥 Georgian Medical Document Translation Pipeline")
-    st.write("Convert complex Georgian clinical documents into professional English PDFs with executive medical styling.")
+    st.title("🏥 სამედიცინო დოკუმენტების მთარგმნელი")
+    st.write("ქართული სამედიცინო დოკუმენტების პროფესიონალური ინგლისური თარგმანი ოფიციალური ფორმატით და დახვეწილი დიზაინით.")
 
     def _render_footer():
         st.markdown("<br><hr style='border: none; border-top: 1px solid #e2e8f0; margin: 30px 0 10px 0;'><div style='text-align: center; color: #64748b; font-size: 0.9em; font-weight: 500;'>Made with ❤️ by Gigi</div>", unsafe_allow_html=True)
@@ -1057,49 +1057,49 @@ def run_streamlit():
         with open(selected_sample, "rb") as sf:
             pdf_bytes = sf.read()
         file_name = os.path.basename(selected_sample)
-        st.success(f"Selected sample document: **{file_name}**")
+        st.success(f"არჩეულია სატესტო დოკუმენტი: **{file_name}**")
     else:
-        uploaded_file = st.file_uploader("Upload a Medical PDF (Invoice, Form #100, Lab Report)", type=["pdf"])
+        uploaded_file = st.file_uploader("ატვირთეთ სამედიცინო PDF (ინვოისი, ფორმა №100, ლაბორატორიული კვლევა)", type=["pdf"])
         if uploaded_file is not None:
             pdf_bytes = uploaded_file.read()
             file_name = uploaded_file.name
 
     if not pdf_bytes:
-        st.info("👆 Please upload a medical PDF above or select a sample document from the sidebar to begin.")
+        st.info("👆 დასაწყებად ატვირთეთ სამედიცინო PDF ფაილი ან აირჩიეთ ნიმუში მარცხენა მენიუდან.")
         _render_footer()
         return
 
     col_opt1, col_opt2 = st.columns([1, 3])
     with col_opt1:
-        include_excel = st.checkbox("Also extract to Excel (.xlsx)", value=False,
-                                    help="Unchecked by default for fast translation (~5-10s). Check if you need structured Excel tables.")
+        include_excel = st.checkbox("მონაცემების ექსპორტი Excel-ში (.xlsx)", value=False,
+                                    help="სწრაფი თარგმანისთვის (~5-10 წმ) დატოვეთ მონიშვნის გარეშე. მონიშნეთ მხოლოდ ცხრილების Excel-ში გადატანის საჭიროებისას.")
 
-    if not st.button("🚀 Translate & Generate English Document", type="primary", use_container_width=True):
+    if not st.button("🚀 თარგმნა და ინგლისური დოკუმენტის გენერირება", type="primary", use_container_width=True):
         _render_footer()
         return
 
     if not os.environ.get("GEMINI_API_KEY"):
-        st.error("Missing Gemini API Key! Please enter your key in the sidebar or set it in your environment/secrets.")
+        st.error("Gemini API გასაღები ვერ მოიძებნა! გთხოვთ, შეიყვანოთ გასაღები გვერდითა მენიუში ან მიუთითოთ Streamlit Secrets-ში.")
         return
 
-    bar = st.progress(0.0, text="Translating medical text and applying executive styling...")
+    bar = st.progress(0.0, text="მიმდინარეობს სამედიცინო ტექსტის თარგმნა და დოკუმენტის ფორმატირება...")
     t0 = time.time()
     try:
-        with st.spinner("Processing document layout and clinical terminology..."):
+        with st.spinner("მიმდინარეობს დოკუმენტის სტრუქტურისა და სამედიცინო ტერმინოლოგიის დამუშავება..."):
             pdf_data, full_html, excel_data, df_fields, df_tables = process_document(
                 pdf_bytes,
-                progress=lambda f: bar.progress(f, text=f"Processed {f:.0%} of pages"),
+                progress=lambda f: bar.progress(f, text=f"დამუშავებულია გვერდების {f:.0%}"),
                 with_excel=include_excel
             )
     except Exception as exc:
         bar.empty()
-        st.error(f"❌ Error during document processing: {str(exc)}")
+        st.error(f"❌ შეცდომა დოკუმენტის დამუშავებისას: {str(exc)}")
         import traceback
         st.code(traceback.format_exc(), language="python")
         return
     bar.empty()
     duration = time.time() - t0
-    st.success(f"✅ Translation completed in {duration:.1f} seconds!")
+    st.success(f"✅ თარგმანი წარმატებით დასრულდა {duration:.1f} წამში!")
 
     stem = os.path.splitext(file_name)[0]
     safe_stem = re.sub(r'[\s]+', '_', stem.strip())
@@ -1108,14 +1108,14 @@ def run_streamlit():
     if include_excel and excel_data:
         col_dl1, col_dl2 = st.columns(2)
         with col_dl1:
-            st.download_button("📥 Download English PDF", data=pdf_data, file_name=f"{safe_stem}_EN.pdf",
+            st.download_button("📥 ინგლისური PDF-ის ჩამოტვირთვა", data=pdf_data, file_name=f"{safe_stem}_EN.pdf",
                                mime="application/pdf", use_container_width=True)
         with col_dl2:
-            st.download_button("📊 Download Structured Excel (.xlsx)", data=excel_data, file_name=f"{safe_stem}_data.xlsx",
+            st.download_button("📊 სტრუქტურირებული Excel-ის (.xlsx) ჩამოტვირთვა", data=excel_data, file_name=f"{safe_stem}_data.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                use_container_width=True)
     else:
-        st.download_button("📥 Download English PDF", data=pdf_data, file_name=f"{safe_stem}_EN.pdf",
+        st.download_button("📥 ინგლისური PDF-ის ჩამოტვირთვა", data=pdf_data, file_name=f"{safe_stem}_EN.pdf",
                            mime="application/pdf", use_container_width=True)
 
     # Mobile Safari direct Blob viewer (solves iOS Safari download manager issues)
@@ -1135,7 +1135,7 @@ def run_streamlit():
                 font-weight: 600;
                 text-decoration: none;
                 box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
-            ">📱 Tap Here to Open PDF in New Tab (iPhone / Safari)</a>
+            ">📱 დააჭირეთ აქ PDF-ის პირდაპირ სანახავად / შესანახად (ტელეფონი / Safari)</a>
         </div>
         <script>
         try {{
@@ -1159,8 +1159,8 @@ def run_streamlit():
     )
 
     # Document Preview Tabs
-    st.markdown("### 📄 Document Preview")
-    tabs = st.tabs(["Interactive Document Preview", "HTML Source"] + (["Structured Data"] if (include_excel and not df_fields.empty) else []))
+    st.markdown("### 📄 დოკუმენტის გადახედვა")
+    tabs = st.tabs(["დოკუმენტის გადახედვა", "HTML კოდი"] + (["სტრუქტურირებული მონაცემები"] if (include_excel and not df_fields.empty) else []))
     
     with tabs[0]:
         components.html(full_html, height=800, scrolling=True)
@@ -1170,14 +1170,14 @@ def run_streamlit():
 
     if include_excel and not df_fields.empty and len(tabs) > 2:
         with tabs[2]:
-            subtab1, subtab2 = st.tabs(["Document Fields", "Table Data"])
+            subtab1, subtab2 = st.tabs(["დოკუმენტის ველები", "ცხრილის მონაცემები"])
             with subtab1:
                 st.dataframe(df_fields, use_container_width=True)
             with subtab2:
                 if not df_tables.empty:
                     st.dataframe(df_tables, use_container_width=True)
                 else:
-                    st.info("No multi-row tables detected in this document.")
+                    st.info("ამ დოკუმენტში მრავალსტრიქონიანი ცხრილები ვერ მოიძებნა.")
 
     _render_footer()
 

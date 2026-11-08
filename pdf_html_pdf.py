@@ -1116,16 +1116,44 @@ def run_streamlit():
         st.download_button("📥 Download English PDF", data=pdf_data, file_name=f"{safe_stem}_EN.pdf",
                            mime="application/pdf", use_container_width=True)
 
-    # Mobile Safari direct link (bypasses iOS download manager issues)
+    # Mobile Safari direct Blob viewer (solves iOS Safari download manager issues)
     b64_pdf = base64.b64encode(pdf_data).decode("ascii")
-    st.markdown(
-        f'<div style="margin: 6pt 0 12pt 0; text-align: center;">'
-        f'<a href="data:application/pdf;base64,{b64_pdf}" download="{safe_stem}_EN.pdf" target="_blank" '
-        f'style="display: inline-block; padding: 7pt 14pt; background-color: #f1f5f9; color: #1e3a8a; border: 1pt solid #cbd5e1; border-radius: 6pt; font-size: 9pt; font-weight: 600; text-decoration: none;">'
-        f'📱 Mobile / Safari Alternative: Tap here to open/save PDF directly'
-        f'</a>'
-        f'</div>',
-        unsafe_allow_html=True
+    components.html(
+        f"""
+        <div style="margin: 4px 0 10px 0; text-align: center;">
+            <a id="iosOpenBtn" href="#" target="_blank" style="
+                display: block;
+                background: linear-gradient(135deg, #1e3a8a, #2563eb);
+                color: #ffffff;
+                text-align: center;
+                padding: 13px 20px;
+                border-radius: 8px;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                font-size: 15px;
+                font-weight: 600;
+                text-decoration: none;
+                box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+            ">📱 Tap Here to Open PDF in New Tab (iPhone / Safari)</a>
+        </div>
+        <script>
+        try {{
+            const b64 = "{b64_pdf}";
+            const byteChars = atob(b64);
+            const byteNums = new Array(byteChars.length);
+            for (let i = 0; i < byteChars.length; i++) {{
+                byteNums[i] = byteChars.charCodeAt(i);
+            }}
+            const byteArray = new Uint8Array(byteNums);
+            const blob = new Blob([byteArray], {{ type: 'application/pdf' }});
+            const blobUrl = URL.createObjectURL(blob);
+            const btn = document.getElementById("iosOpenBtn");
+            btn.href = blobUrl;
+        }} catch(e) {{
+            console.error("Blob URL generation error:", e);
+        }}
+        </script>
+        """,
+        height=65
     )
 
     # Document Preview Tabs

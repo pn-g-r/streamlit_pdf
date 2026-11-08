@@ -1039,9 +1039,13 @@ def run_streamlit():
 
         st.markdown("---")
         st.info("🇬🇪 **Georgian ➔ 🇬🇧 English**\n\nTransforms complex medical invoices, Form #100 certificates, and laboratory panels into certified-grade English PDFs.")
+        st.markdown("<div style='text-align: center; color: #64748b; font-size: 0.85em; margin-top: 15px;'>Made with ❤️ by Gigi</div>", unsafe_allow_html=True)
 
     st.title("🏥 Georgian Medical Document Translation Pipeline")
     st.write("Convert complex Georgian clinical documents into professional English PDFs with executive medical styling.")
+
+    def _render_footer():
+        st.markdown("<br><hr style='border: none; border-top: 1px solid #e2e8f0; margin: 30px 0 10px 0;'><div style='text-align: center; color: #64748b; font-size: 0.9em; font-weight: 500;'>Made with ❤️ by Gigi</div>", unsafe_allow_html=True)
 
     # Input selection: upload or sample
     pdf_bytes = None
@@ -1060,6 +1064,7 @@ def run_streamlit():
 
     if not pdf_bytes:
         st.info("👆 Please upload a medical PDF above or select a sample document from the sidebar to begin.")
+        _render_footer()
         return
 
     col_opt1, col_opt2 = st.columns([1, 3])
@@ -1068,6 +1073,7 @@ def run_streamlit():
                                     help="Unchecked by default for fast translation (~5-10s). Check if you need structured Excel tables.")
 
     if not st.button("🚀 Translate & Generate English Document", type="primary", use_container_width=True):
+        _render_footer()
         return
 
     if not os.environ.get("GEMINI_API_KEY"):
@@ -1129,6 +1135,8 @@ def run_streamlit():
                     st.dataframe(df_tables, use_container_width=True)
                 else:
                     st.info("No multi-row tables detected in this document.")
+
+    _render_footer()
 
 
 if "--cli" in sys.argv:

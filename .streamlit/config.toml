@@ -1,3 +1,7 @@
+[client]
+toolbarMode = "minimal"
+showErrorDetails = false
+
 [server]
 maxUploadSize = 50
 

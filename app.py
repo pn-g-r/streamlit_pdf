@@ -1006,6 +1006,23 @@ def run_streamlit():
 
     st.set_page_config(page_title="Medical Document Translator", page_icon="🏥", layout="wide")
 
+    # Hide Streamlit header, toolbar, hamburger menu, and GitHub repo buttons
+    st.markdown(
+        """
+        <style>
+        #MainMenu {visibility: hidden !important; display: none !important;}
+        header {visibility: hidden !important; display: none !important;}
+        footer {visibility: hidden !important; display: none !important;}
+        .stAppDeployButton {display: none !important; visibility: hidden !important;}
+        [data-testid="stToolbar"] {display: none !important; visibility: hidden !important;}
+        [data-testid="stDecoration"] {display: none !important; visibility: hidden !important;}
+        [data-testid="stStatusWidget"] {display: none !important; visibility: hidden !important;}
+        div[class*="viewerBadge"] {display: none !important; visibility: hidden !important;}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
     # Sidebar: API Key and Configuration
     with st.sidebar:
         st.header("⚙️ Configuration")

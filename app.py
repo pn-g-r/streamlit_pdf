@@ -416,11 +416,27 @@ Your mission is to perform visual reconstruction: look at the original document 
 Focus on executive styling, balance, and readability above raw copy-pasting.
 
 MANDATORY VISUAL LAYOUT & FORMATTING RULES:
-1. HEADER & ISSUER BLOCK:
+1. HEADER & ISSUER BLOCK (Form #100 & Clinical Reports):
    - Carefully inspect the top area of the original image:
-     * If clinic name, tax ID, and certificate number are in a bordered card/box (as in Form #100 top-left), wrap them in `<div class="box" style="border: 1px solid #94a3b8; padding: 6pt 10pt; display: inline-block;">...</div>`.
-     * If there is an approval note or legal decree in top-right, right-align it.
-     * Place top-left clinic box and top-right approval side-by-side using `<table class="layout" style="width:100%; margin-bottom: 12pt;">`.
+     * Clinic stamp/issuer card (top-left):
+       `<div class="clinic-card" style="border: 1pt solid #94a3b8; background-color: #f8fafc; border-radius: 4pt; padding: 6pt 10pt; min-width: 220pt; max-width: 280pt; display: inline-block; box-sizing: border-box;">
+          <div style="font-weight: 600; color: #0f172a; font-size: 9.5pt; line-height: 1.35;">Clinic / Hospital Name</div>
+          <div style="font-size: 9pt; color: #334155;">Identification Code / Tax ID</div>
+          <div style="font-size: 9pt; color: #334155;">Certificate # Number</div>
+        </div>`
+       CRITICAL: Keep the clinic name on 1-2 natural lines. Do NOT shrink this box or wrap words individually.
+     * Legal decree / approval note (top-right):
+       `<div class="decree-block" style="max-width: 190pt; margin-left: auto; text-align: right; font-size: 8.5pt; color: #475569; line-height: 1.35;">
+          Approved by Order No. 230/N<br>of the Minister of Labor, Health<br>and Social Affairs of Georgia,<br>dated 15.10.2008
+        </div>`
+       CRITICAL: Constrain its width (`max-width: 190pt;`) and let it wrap into a compact 3-4 line block. Never let it stretch horizontally across the page.
+     * Place top-left clinic card and top-right approval side-by-side using:
+       `<table class="layout" style="width: 100%; margin-bottom: 12pt; table-layout: fixed;">
+          <tr>
+            <td style="width: 58%; vertical-align: top;">...clinic card...</td>
+            <td style="width: 42%; vertical-align: top; text-align: right;">...decree block...</td>
+          </tr>
+        </table>`
      * If there is a hospital logo, insert `<!-- IMG:id -->` exactly where it appears.
 2. DOCUMENT TITLES (CENTERED & PROMINENT):
    - Medical document titles (such as 'Medical Documentation Form No. IV-100/a', 'CERTIFICATE', 'REGARDING HEALTH STATUS', or 'MEDICAL INVOICE') MUST be prominently centered:
@@ -491,6 +507,31 @@ def _clean_fragment(text):
     # 4. Strip standalone TCPDF lines or certification lines
     text = re.sub(r'(?m)^\s*Powered by TCPDF.*$', '', text, flags=re.IGNORECASE)
     text = re.sub(r'(?m)^\s*(?:Official Medical Document|Certified English translation|English Certified Translation).*$', '', text, flags=re.IGNORECASE)
+
+    # 5. Format top-right decree note into compact right-aligned block
+    def _fix_decree(match):
+        prefix = match.group(1)
+        inner = re.sub(r'<[^>]+>', ' ', match.group(2))
+        inner = ' '.join(inner.split())
+        suffix = match.group(3)
+        return (f'{prefix}<div class="decree-block" style="max-width: 190pt; margin-left: auto; '
+                f'text-align: right; font-size: 8.5pt; color: #475569; line-height: 1.35;">'
+                f'{inner}</div>{suffix}')
+
+    text = re.sub(
+        r'(<td[^>]*>)\s*(?:<div[^>]*>)?\s*(Approved\s+by\s+(?:Order|Decree)[^<]+?(?:Minister|Georgia|2008|230)[^<]*?)\s*(?:</div>)?\s*(</td>)',
+        _fix_decree,
+        text,
+        flags=re.IGNORECASE | re.DOTALL
+    )
+
+    # 6. Ensure clinic header box does not shrink or wrap awkwardly
+    text = re.sub(
+        r'(<div[^>]*class="[^"]*(?:box|clinic-card|issuer-card)[^"]*"[^>]*style=")([^"]*display:\s*inline-block;?[^"]*)(")',
+        lambda m: m.group(1) + m.group(2).rstrip(';') + ('; min-width: 220pt; max-width: 280pt; box-sizing: border-box;' if 'min-width' not in m.group(2) else '') + m.group(3),
+        text,
+        flags=re.IGNORECASE
+    )
 
     # 5. Remove running footer containers
     text = re.sub(r'<div[^>]*class="[^"]*footer[^"]*"[^>]*>.*?</div>', '', text, flags=re.IGNORECASE | re.DOTALL)
@@ -587,19 +628,51 @@ def build_html(fragments, profile):
 <head>
   <meta charset="utf-8">
   <style>
-    @page {{
-      size: {profile['page_w_mm']:.1f}mm {profile['page_h_mm']:.1f}mm;
-      margin: {t:.1f}mm {r:.1f}mm {b:.1f}mm {l:.1f}mm;
+    @media print {{
+      @page {{
+        size: {profile['page_w_mm']:.1f}mm {profile['page_h_mm']:.1f}mm;
+        margin: {t:.1f}mm {r:.1f}mm {b:.1f}mm {l:.1f}mm;
+      }}
+      body {{
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-size: {base}pt; line-height: 1.35; color: #0f172a; margin: 0; padding: 0; background: transparent;
+      }}
+      section.page {{
+        margin: 0;
+        padding: 0;
+        background: transparent;
+        box-shadow: none;
+        border-radius: 0;
+        width: auto;
+        min-height: auto;
+        break-after: auto;
+      }}
     }}
+    
+    @media screen {{
+      body {{
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-size: {base}pt; line-height: 1.35; color: #0f172a; margin: 0;
+        background-color: #f1f5f9;
+        padding: 24px 12px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }}
+      section.page {{
+        background-color: #ffffff;
+        width: {profile['page_w_mm']:.1f}mm;
+        max-width: 100%;
+        min-height: {profile['page_h_mm']:.1f}mm;
+        padding: {t:.1f}mm {r:.1f}mm {b:.1f}mm {l:.1f}mm;
+        margin: 0 auto 24px auto;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05);
+        box-sizing: border-box;
+        border-radius: 3px;
+      }}
+    }}
+    
     html {{ font-size: {base}pt; }}
-    body {{
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      font-size: {base}pt; line-height: 1.35; color: #0f172a; margin: 0;
-    }}
-    section.page {{
-      break-after: auto;
-      margin-bottom: 0;
-    }}
     
     /* Clean, modern headings */
     h1, h2, h3, h4 {{ color: #0f172a; margin: 6pt 0 4pt 0; font-weight: 600; line-height: 1.25; }}
@@ -627,7 +700,30 @@ def build_html(fragments, profile):
     /* Layout table for header cards & metadata */
     table {{ width: 100%; border-collapse: collapse; margin: 6pt 0; }}
     td, th {{ vertical-align: top; word-wrap: break-word; }}
-    table.layout td, table.layout th {{ border: none; padding: 2pt 4pt 2pt 0; }}
+    table.layout {{ width: 100%; table-layout: fixed; }}
+    table.layout td, table.layout th {{ border: none; padding: 2pt 4pt 2pt 0; vertical-align: top; }}
+    
+    /* Dedicated header classes for Form 100 & clinical reports */
+    .clinic-card, .issuer-card, table.layout td .box {{
+      border: 1pt solid #94a3b8;
+      background-color: #f8fafc;
+      border-radius: 4pt;
+      padding: 6pt 10pt;
+      min-width: 220pt;
+      max-width: 280pt;
+      display: inline-block;
+      line-height: 1.35;
+      box-sizing: border-box;
+    }}
+    .decree-block, .approval-note {{
+      display: inline-block;
+      max-width: 190pt;
+      margin-left: auto;
+      text-align: right;
+      font-size: 8.5pt;
+      color: #475569;
+      line-height: 1.35;
+    }}
     
     /* Executive styled clinical data tables & financial summary grids */
     table.data-table, table.summary-table, table.summary-grid {{

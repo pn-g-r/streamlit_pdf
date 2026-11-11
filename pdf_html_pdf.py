@@ -1280,8 +1280,8 @@ def run_streamlit():
         workflow_rep = st.radio(
             "აირჩიეთ დამუშავების ფორმატი:",
             [
+                "ჯერ რედაქტირებადი HTML-ის ნახვა (და შემდეგ PDF-ად გარდაქმნა)",
                 "პირდაპირ PDF-ის გენერირება",
-                "ჯერ რედაქტირებადი HTML-ის ნახვა (და შემდეგ PDF-ად გარდაქმნა)"
             ],
             horizontal=True,
             key="workflow_rep_choice"
@@ -1443,8 +1443,8 @@ def run_streamlit():
     workflow_trans = st.radio(
         "აირჩიეთ დამუშავების ფორმატი:",
         [
+            "ჯერ რედაქტირებადი HTML-ის ნახვა (და შემდეგ PDF-ად გარდაქმნა)",
             "პირდაპირ PDF-ის გენერირება",
-            "ჯერ რედაქტირებადი HTML-ის ნახვა (და შემდეგ PDF-ად გარდაქმნა)"
         ],
         horizontal=True,
         key="workflow_trans_choice"

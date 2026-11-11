@@ -1328,24 +1328,6 @@ def run_streamlit():
                     st.session_state["rep_extracted"] = extracted
                     st.session_state["rep_info"] = info
                     st.session_state["rep_html"] = html_rep
-                    # Initialize editable fields
-                    st.session_state["edit_pname"] = info["patient_name"]
-                    st.session_state["edit_pid"] = info["personal_number"]
-                    st.session_state["edit_amount"] = float(info["amount_gel"])
-                    st.session_state["edit_adm"] = info["admission_date"]
-                    st.session_state["edit_dis"] = info["discharge_date"]
-                    st.session_state["edit_case"] = info.get("case_number", "[blank]")
-                    st.session_state["edit_inv_date"] = info.get("invoice_date", current_inv_date)
-                    st.session_state["rep_html_editor"] = html_rep
-                    st.session_state["rep_applied_fields"] = (
-                        info["patient_name"],
-                        info["personal_number"],
-                        float(info["amount_gel"]),
-                        info["admission_date"],
-                        info["discharge_date"],
-                        info.get("case_number", "[blank]"),
-                        info.get("invoice_date", current_inv_date),
-                    )
                     if not workflow_rep.startswith("ჯერ"):
                         st.session_state["rep_pdf"] = pdf_rep
                     else:
@@ -1364,125 +1346,17 @@ def run_streamlit():
 
             if workflow_rep.startswith("ჯერ"):
                 st.markdown("---")
-                st.subheader("დოკუმენტის რედაქტირება")
-                st.write("შეცვალეთ მონაცემები ველებში ან პირდაპირ HTML კოდში. ცვლილებები ავტომატურად აისახება გადახედვაში და PDF-ში.")
+                st.subheader("დოკუმენტის რედაქტირება (ინტერაქტიული გადახედვა)")
+                st.write("დააწკაპუნეთ პირდაპირ დოკუმენტის ნებისმიერ ტექსტზე (პაციენტის სახელი, თარიღი, თანხა და სხვ.) და შეცვალეთ. ცვლილებების შემდეგ დააჭირეთ PDF-ად გარდაქმნას.")
 
-                edit_mode = st.radio(
-                    "რედაქტირების რეჟიმი:",
-                    [
-                        "ინტერაქტიული გადახედვა (დოკუმენტში პირდაპირი ჩაწერა)",
-                        "მონაცემთა ველები (სახელი, პირადი №, თანხა, თარიღები)",
-                        "HTML კოდის პირდაპირი რედაქტირება",
-                    ],
-                    horizontal=True,
-                    key="rep_edit_mode"
-                )
-
-                if "edit_pname" not in st.session_state:
-                    current_inv_date = datetime.now().strftime("%d/%m/%Y")
-                    st.session_state["edit_pname"] = info["patient_name"]
-                    st.session_state["edit_pid"] = info["personal_number"]
-                    st.session_state["edit_amount"] = float(info["amount_gel"])
-                    st.session_state["edit_adm"] = info["admission_date"]
-                    st.session_state["edit_dis"] = info["discharge_date"]
-                    st.session_state["edit_case"] = info.get("case_number", "[blank]")
-                    st.session_state["edit_inv_date"] = info.get("invoice_date", current_inv_date)
-                    st.session_state["rep_applied_fields"] = (
-                        info["patient_name"],
-                        info["personal_number"],
-                        float(info["amount_gel"]),
-                        info["admission_date"],
-                        info["discharge_date"],
-                        info.get("case_number", "[blank]"),
-                        info.get("invoice_date", current_inv_date),
-                    )
-
-                if edit_mode.startswith("მონაცემთა ველები"):
-                    c_p1, c_p2, c_p3 = st.columns(3)
-                    with c_p1:
-                        edit_pname = st.text_input("პაციენტის სახელი (ინგლისურად):", key="edit_pname")
-                    with c_p2:
-                        edit_pid = st.text_input("პირადი ნომერი:", key="edit_pid")
-                    with c_p3:
-                        edit_inv_date = st.text_input("ინვოისის თარიღი (დღე/თვე/წელი):", key="edit_inv_date")
-
-                    c_p4, c_p5, c_p6, c_p7 = st.columns(4)
-                    with c_p4:
-                        edit_amount = st.number_input("საწყისი თანხა GEL (18%-მდე):", min_value=0.0, step=1.0, format="%.2f", key="edit_amount",
-                                                      help=f"საბოლოო თანხა (+18%): {float(st.session_state.get('edit_amount', 0.0)) * 1.18:,.2f} GEL")
-                    with c_p5:
-                        edit_adm = st.text_input("სტაციონარში მოთავსება:", key="edit_adm")
-                    with c_p6:
-                        edit_dis = st.text_input("გაწერა:", key="edit_dis")
-                    with c_p7:
-                        edit_case = st.text_input("Case number:", key="edit_case")
-
-                    current_tuple = (
-                        edit_pname.strip().upper(),
-                        edit_pid.strip(),
-                        float(edit_amount),
-                        edit_adm.strip(),
-                        edit_dis.strip(),
-                        edit_case.strip(),
-                        edit_inv_date.strip(),
-                    )
-
-                    if current_tuple != st.session_state.get("rep_applied_fields"):
-                        html_updated, _, updated_info = populate_representative_invoice(
-                            patient_name=current_tuple[0],
-                            personal_number=current_tuple[1],
-                            admission_date=current_tuple[3],
-                            discharge_date=current_tuple[4],
-                            amount_gel=current_tuple[2],
-                            case_number=current_tuple[5],
-                            invoice_date=current_tuple[6],
-                        )
-                        st.session_state["rep_html"] = html_updated
-                        st.session_state["rep_info"] = updated_info
-                        st.session_state["rep_html_editor"] = html_updated
-                        st.session_state["rep_applied_fields"] = current_tuple
-                        st.session_state["rep_pdf"] = None
-
-                    st.caption(f"ინვოისის თარიღი: **{edit_inv_date}** | თანხის შეცვლისას +18% ({float(edit_amount) * 1.18:,.2f} GEL) და USD ეკვივალენტი გადაითვლება ავტომატურად.")
-
-                elif edit_mode.startswith("HTML კოდის"):
-                    raw_val = st.session_state.get("rep_html_editor", st.session_state["rep_html"])
-                    edited_html = st.text_area("HTML რედაქტორი:", value=raw_val, height=450, key="rep_html_editor")
-                    if edited_html != st.session_state.get("rep_html"):
-                        st.session_state["rep_html"] = edited_html
-                        st.session_state["rep_pdf"] = None
-
-                else:
-                    st.info("დააწკაპუნეთ პირდაპირ დოკუმენტის ნებისმიერ ტექსტზე (პაციენტის სახელი, თარიღი, თანხა და სხვ.) და შეცვალეთ. ცვლილებები ავტომატურად შეინახება.")
-
-                st.markdown("### წინასწარი გადახედვა (Live Preview)")
                 updated_preview = render_editable_preview(st.session_state["rep_html"], key="rep_interactive_preview")
                 if updated_preview and updated_preview != st.session_state.get("rep_html"):
                     st.session_state["rep_html"] = updated_preview
-                    st.session_state["rep_html_editor"] = updated_preview
                     st.session_state["rep_pdf"] = None
 
                 if st.button("რედაქტირებული ინვოისის PDF-ად გარდაქმნა", type="primary", use_container_width=True, key="rep_convert_pdf"):
                     with st.spinner("მიმდინარეობს PDF ფაილის გენერირება..."):
-                        if edit_mode.startswith("მონაცემთა ველები"):
-                            html_to_compile, _, updated_info = populate_representative_invoice(
-                                patient_name=st.session_state.get("edit_pname", "").strip().upper(),
-                                personal_number=st.session_state.get("edit_pid", "").strip(),
-                                admission_date=st.session_state.get("edit_adm", "").strip(),
-                                discharge_date=st.session_state.get("edit_dis", "").strip(),
-                                amount_gel=float(st.session_state.get("edit_amount", 0.0)),
-                                case_number=st.session_state.get("edit_case", "").strip(),
-                                invoice_date=st.session_state.get("edit_inv_date", "").strip(),
-                            )
-                            st.session_state["rep_html"] = html_to_compile
-                            st.session_state["rep_info"] = updated_info
-                        elif edit_mode.startswith("HTML კოდის"):
-                            html_to_compile = st.session_state.get("rep_html_editor", st.session_state["rep_html"])
-                            st.session_state["rep_html"] = html_to_compile
-                        else:
-                            html_to_compile = st.session_state["rep_html"]
-
-                        pdf_created = html_to_pdf(html_to_compile)
+                        pdf_created = html_to_pdf(st.session_state["rep_html"])
                         st.session_state["rep_pdf"] = pdf_created
                         st.success("PDF წარმატებით შეიქმნა!")
 
@@ -1638,40 +1512,18 @@ def run_streamlit():
 
         if workflow_trans.startswith("ჯერ"):
             st.markdown("---")
-            st.subheader("თარგმნილი დოკუმენტის რედაქტირება")
-            st.write("შეცვალეთ ნებისმიერი ტექსტი, დიაგნოზი ან მონაცემი პირდაპირ გადახედვაში ან HTML კოდში, შემდეგ დააჭირეთ PDF-ად გარდაქმნას.")
+            st.subheader("თარგმნილი დოკუმენტის რედაქტირება (ინტერაქტიული გადახედვა)")
+            st.write("დააწკაპუნეთ პირდაპირ დოკუმენტის ნებისმიერ ტექსტზე, დიაგნოზზე ან მონაცემზე და შეცვალეთ. ცვლილებების შემდეგ დააჭირეთ PDF-ად გარდაქმნას.")
 
-            edit_mode_trans = st.radio(
-                "რედაქტირების რეჟიმი:",
-                ["ინტერაქტიული გადახედვა (დოკუმენტში პირდაპირი ჩაწერა)", "HTML კოდის პირდაპირი რედაქტორი"],
-                horizontal=True,
-                key="trans_edit_mode"
-            )
-
-            if edit_mode_trans.startswith("HTML კოდის"):
-                if "trans_html_editor" not in st.session_state:
-                    st.session_state["trans_html_editor"] = st.session_state["trans_html"]
-
-                edited_trans_html = st.text_area("HTML რედაქტორი:", value=st.session_state.get("trans_html_editor", st.session_state["trans_html"]), height=400, key="trans_html_editor")
-                if edited_trans_html != st.session_state.get("trans_html"):
-                    st.session_state["trans_html"] = edited_trans_html
-                    st.session_state["trans_pdf"] = None
-            else:
-                st.info("დააწკაპუნეთ პირდაპირ დოკუმენტის ნებისმიერ ტექსტზე და შეცვალეთ. ცვლილებები ავტომატურად შეინახება.")
-
-            st.markdown("### წინასწარი გადახედვა (Live Preview)")
             updated_trans = render_editable_preview(st.session_state["trans_html"], key="trans_interactive_preview")
             if updated_trans and updated_trans != st.session_state.get("trans_html"):
                 st.session_state["trans_html"] = updated_trans
-                st.session_state["trans_html_editor"] = updated_trans
                 st.session_state["trans_pdf"] = None
 
             if st.button("რედაქტირებული დოკუმენტის PDF-ად გარდაქმნა", type="primary", use_container_width=True, key="btn_convert_trans_pdf"):
                 with st.spinner("მიმდინარეობს PDF ფაილის გენერირება..."):
-                    html_to_compile = st.session_state.get("trans_html_editor", st.session_state["trans_html"])
-                    pdf_created = html_to_pdf(html_to_compile)
+                    pdf_created = html_to_pdf(st.session_state["trans_html"])
                     st.session_state["trans_pdf"] = pdf_created
-                    st.session_state["trans_html"] = html_to_compile
                     st.success("PDF წარმატებით შეიქმნა!")
 
         if st.session_state.get("trans_pdf"):

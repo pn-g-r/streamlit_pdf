@@ -2,23 +2,29 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Invoice ATL-R-001048</title>
+  <title></title>
   <style>
+    @page {
+      size: letter portrait;
+      margin: 0;
+    }
+    
     @media print {
       @page {
         size: letter portrait;
-        margin: 12mm 15mm 12mm 15mm;
-      }
-      body {
         margin: 0;
-        padding: 0;
-        background: transparent;
+      }
+      html, body {
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #ffffff !important;
       }
       .invoice-wrapper {
         box-shadow: none !important;
-        padding: 0 !important;
+        padding: 12mm 15mm 12mm 15mm !important;
         margin: 0 !important;
         max-width: 100% !important;
+        width: 100% !important;
       }
     }
     

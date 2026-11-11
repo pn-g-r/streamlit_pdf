@@ -103,9 +103,6 @@
       <span>ინტერაქტიული რედაქტირება: დააწკაპუნეთ ნებისმიერ ტექსტზე და შეცვალეთ</span>
     </div>
     <div class="preview-actions">
-      <button type="button" class="btn btn-print" id="printBtn" title="ბეჭდვა / PDF-ის პირდაპირ შენახვა ბრაუზერით">
-        ბეჭდვა / სწრაფი PDF
-      </button>
       <button type="button" class="btn btn-save" id="saveBtn">
         ცვლილებების შენახვა
       </button>
@@ -119,7 +116,6 @@
   <script>
     const frame = document.getElementById("docFrame");
     const saveBtn = document.getElementById("saveBtn");
-    const printBtn = document.getElementById("printBtn");
 
     let lastLoadedHtml = "";
     let lastSentHtml = "";
@@ -187,6 +183,7 @@
     function setupFrameDoc(doc) {
       if (!doc || !doc.body) return;
       try {
+        doc.title = "";
         doc.body.contentEditable = "true";
         doc.body.spellcheck = false;
 
@@ -202,6 +199,23 @@
             div:focus, td:focus, p:focus, span:focus {
               outline: 2px solid #2563eb !important;
               background-color: rgba(37, 99, 235, 0.04) !important;
+            }
+            @page {
+              size: letter portrait;
+              margin: 0 !important;
+            }
+            @media print {
+              @page {
+                size: letter portrait;
+                margin: 0 !important;
+              }
+              html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+              }
+              .invoice-wrapper {
+                padding: 12mm 15mm !important;
+              }
             }
           `;
           doc.head.appendChild(style);
@@ -257,17 +271,6 @@
     });
 
     saveBtn.addEventListener("click", saveCurrentEdits);
-
-    printBtn.addEventListener("click", () => {
-      try {
-        if (frame.contentWindow) {
-          frame.contentWindow.focus();
-          frame.contentWindow.print();
-        }
-      } catch (e) {
-        alert("ბეჭდვის შეცდომა: " + e.message);
-      }
-    });
 
     // Notify Streamlit ready
     window.parent.postMessage({

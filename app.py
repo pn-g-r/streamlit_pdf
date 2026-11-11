@@ -15,6 +15,7 @@ Run as batch CLI:       python pdf_html_pdf.py --cli file1.pdf [file2.pdf ...] [
 """
 import base64
 import concurrent.futures as cf
+from datetime import datetime
 import io
 import json
 import os
@@ -1076,6 +1077,7 @@ def populate_representative_invoice(
     discharge_date: str,
     amount_gel: float,
     case_number: str = "[blank]",
+    invoice_date: str = None,
     template_path: str = None,
 ):
     """Populates representative_invoice.html and compiles it to PDF."""
@@ -1085,6 +1087,9 @@ def populate_representative_invoice(
     with open(template_path, "r", encoding="utf-8") as f:
         html = f.read()
 
+    if not invoice_date:
+        invoice_date = datetime.now().strftime("%d/%m/%Y")
+
     # Calculations: Price = Amount * 1.18, Amount = Price
     price_gel = round(amount_gel * 1.18, 2)
     rate_usd = get_usd_exchange_rate()
@@ -1092,6 +1097,9 @@ def populate_representative_invoice(
 
     price_gel_str = f"{price_gel:,.2f}"
     price_usd_str = f"{price_usd:,.2f}"
+
+    # Replace Invoice Date (day/month/year)
+    html = re.sub(r'<div class="invoice-date">[^<]*</div>', f'<div class="invoice-date">{invoice_date}</div>', html)
 
     # Replace Metadata fields
     html = re.sub(r"<div>Patient:\s*[^<]*</div>", f"<div>Patient: {patient_name}</div>", html)
@@ -1126,6 +1134,7 @@ def populate_representative_invoice(
         "case_number": case_number,
         "admission_date": admission_date,
         "discharge_date": discharge_date,
+        "invoice_date": invoice_date,
         "amount_gel": amount_gel,
         "price_gel": price_gel,
         "price_gel_str": price_gel_str,
@@ -1271,6 +1280,7 @@ def run_streamlit():
             try:
                 with st.spinner("მიმდინარეობს მონაცემების ექსტრაქცია და ინვოისის შედგენა..."):
                     extracted = extract_invoice_and_forma100_data(client, inv_bytes, f100_bytes)
+                    current_inv_date = datetime.now().strftime("%d/%m/%Y")
                     html_rep, pdf_rep, info = populate_representative_invoice(
                         patient_name=extracted["patient_name_en"],
                         personal_number=extracted["personal_number"],
@@ -1278,6 +1288,7 @@ def run_streamlit():
                         discharge_date=extracted["discharge_date"],
                         amount_gel=extracted["amount_gel"],
                         case_number="[blank]",
+                        invoice_date=current_inv_date,
                     )
                     st.session_state["rep_extracted"] = extracted
                     st.session_state["rep_info"] = info
@@ -1289,6 +1300,7 @@ def run_streamlit():
                     st.session_state["edit_adm"] = info["admission_date"]
                     st.session_state["edit_dis"] = info["discharge_date"]
                     st.session_state["edit_case"] = info.get("case_number", "[blank]")
+                    st.session_state["edit_inv_date"] = info.get("invoice_date", current_inv_date)
                     st.session_state["rep_html_editor"] = html_rep
                     st.session_state["rep_applied_fields"] = (
                         info["patient_name"],
@@ -1297,6 +1309,7 @@ def run_streamlit():
                         info["admission_date"],
                         info["discharge_date"],
                         info.get("case_number", "[blank]"),
+                        info.get("invoice_date", current_inv_date),
                     )
                     if not workflow_rep.startswith("ჯერ"):
                         st.session_state["rep_pdf"] = pdf_rep
@@ -1327,12 +1340,14 @@ def run_streamlit():
                 )
 
                 if "edit_pname" not in st.session_state:
+                    current_inv_date = datetime.now().strftime("%d/%m/%Y")
                     st.session_state["edit_pname"] = info["patient_name"]
                     st.session_state["edit_pid"] = info["personal_number"]
                     st.session_state["edit_amount"] = float(info["amount_gel"])
                     st.session_state["edit_adm"] = info["admission_date"]
                     st.session_state["edit_dis"] = info["discharge_date"]
                     st.session_state["edit_case"] = info.get("case_number", "[blank]")
+                    st.session_state["edit_inv_date"] = info.get("invoice_date", current_inv_date)
                     st.session_state["rep_applied_fields"] = (
                         info["patient_name"],
                         info["personal_number"],
@@ -1340,6 +1355,7 @@ def run_streamlit():
                         info["admission_date"],
                         info["discharge_date"],
                         info.get("case_number", "[blank]"),
+                        info.get("invoice_date", current_inv_date),
                     )
 
                 if edit_mode.startswith("მონაცემთა ველები"):
@@ -1349,14 +1365,17 @@ def run_streamlit():
                     with c_p2:
                         edit_pid = st.text_input("პირადი ნომერი:", key="edit_pid")
                     with c_p3:
+                        edit_inv_date = st.text_input("ინვოისის თარიღი (დღე/თვე/წელი):", key="edit_inv_date")
+
+                    c_p4, c_p5, c_p6, c_p7 = st.columns(4)
+                    with c_p4:
                         edit_amount = st.number_input("საწყისი თანხა GEL (18%-მდე):", min_value=0.0, step=1.0, format="%.2f", key="edit_amount",
                                                       help=f"საბოლოო თანხა (+18%): {float(st.session_state.get('edit_amount', 0.0)) * 1.18:,.2f} GEL")
-                    c_p4, c_p5, c_p6 = st.columns(3)
-                    with c_p4:
-                        edit_adm = st.text_input("სტაციონარში მოთავსება:", key="edit_adm")
                     with c_p5:
-                        edit_dis = st.text_input("გაწერა:", key="edit_dis")
+                        edit_adm = st.text_input("სტაციონარში მოთავსება:", key="edit_adm")
                     with c_p6:
+                        edit_dis = st.text_input("გაწერა:", key="edit_dis")
+                    with c_p7:
                         edit_case = st.text_input("Case number:", key="edit_case")
 
                     current_tuple = (
@@ -1365,7 +1384,8 @@ def run_streamlit():
                         float(edit_amount),
                         edit_adm.strip(),
                         edit_dis.strip(),
-                        edit_case.strip()
+                        edit_case.strip(),
+                        edit_inv_date.strip(),
                     )
 
                     if current_tuple != st.session_state.get("rep_applied_fields"):
@@ -1376,6 +1396,7 @@ def run_streamlit():
                             discharge_date=current_tuple[4],
                             amount_gel=current_tuple[2],
                             case_number=current_tuple[5],
+                            invoice_date=current_tuple[6],
                         )
                         st.session_state["rep_html"] = html_updated
                         st.session_state["rep_info"] = updated_info
@@ -1383,7 +1404,7 @@ def run_streamlit():
                         st.session_state["rep_applied_fields"] = current_tuple
                         st.session_state["rep_pdf"] = None
 
-                    st.caption(f"თანხის შეცვლისას +18% ({float(edit_amount) * 1.18:,.2f} GEL) და USD ეკვივალენტი გადაითვლება ავტომატურად.")
+                    st.caption(f"ინვოისის თარიღი: **{edit_inv_date}** | თანხის შეცვლისას +18% ({float(edit_amount) * 1.18:,.2f} GEL) და USD ეკვივალენტი გადაითვლება ავტომატურად.")
 
                 else:
                     raw_val = st.session_state.get("rep_html_editor", st.session_state["rep_html"])
@@ -1405,6 +1426,7 @@ def run_streamlit():
                                 discharge_date=st.session_state.get("edit_dis", "").strip(),
                                 amount_gel=float(st.session_state.get("edit_amount", 0.0)),
                                 case_number=st.session_state.get("edit_case", "").strip(),
+                                invoice_date=st.session_state.get("edit_inv_date", "").strip(),
                             )
                             st.session_state["rep_html"] = html_to_compile
                             st.session_state["rep_info"] = updated_info
@@ -1429,7 +1451,7 @@ def run_streamlit():
                 m3.metric("თანხა GEL (+18%)", f"{info['price_gel_str']} GEL")
                 m4.metric("თანხა USD", f"{info['price_usd_str']} USD")
 
-                st.caption(f"სტაციონარში მოთავსება: **{info['admission_date']}** | გაწერა: **{info['discharge_date']}** | კურსი: 1 GEL = {info['rate_usd']:.4f} USD")
+                st.caption(f"ინვოისის თარიღი: **{info.get('invoice_date', '')}** | სტაციონარში მოთავსება: **{info['admission_date']}** | გაწერა: **{info['discharge_date']}** | კურსი: 1 GEL = {info['rate_usd']:.4f} USD")
 
                 safe_pname = re.sub(r'[\s]+', '_', info['patient_name'])
                 st.download_button(

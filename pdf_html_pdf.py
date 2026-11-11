@@ -106,13 +106,24 @@ class UniversalDocumentData(BaseModel):
     tables: list[UniversalTableRow] = Field(description="All table rows")
 
 
+class InvoiceItem(BaseModel):
+    examination_ge: str = Field(description="Exact value of the 'გამოკვლევა' / service description from the invoice in Georgian")
+    examination_en: str = Field(description="The examination/service value translated to professional English, preserving any ICD-10 code (e.g. 'S06.6 Traumatic subarachnoid hemorrhage')")
+    quantity: int = Field(default=1, description="Quantity / რაოდენობა of the service, defaults to 1")
+    unit: str = Field(default="Unit", description="Unit of measurement, defaults to 'Unit'")
+    amount_gel: float = Field(description="Amount / თანხა in GEL for this specific row/service before 18% VAT")
+
+
 class InvoiceExtractedData(BaseModel):
     patient_name_ge: str = Field(description="Patient full name in Georgian")
     patient_name_en: str = Field(description="Patient full name transliterated to English/Latin uppercase (e.g. TATIANA ALIEVA)")
     personal_number: str = Field(description="Personal ID number (პირადი ნომერი, პ/ნ)")
-    amount: float = Field(description="Total invoice amount in GEL (თანხა)")
+    items: list[InvoiceItem] = Field(default_factory=list, description="List of all items/services/examinations from the invoice table rows")
+    total_amount_gel: float = Field(default=0.0, description="Total invoice amount in GEL before 18% VAT (თანხა / სულ ჯამი)")
+    # Backward compatibility fallbacks
+    amount: float = Field(default=0.0, description="Total invoice amount in GEL (თანხა)")
     examination_ge: str = Field(default="", description="The exact value of the 'გამოკვლევა' field from the invoice in Georgian")
-    examination_en: str = Field(default="", description="The 'გამოკვლევა' value translated to professional English, preserving ICD-10 codes (e.g. 'S06.6 Traumatic subarachnoid hemorrhage')")
+    examination_en: str = Field(default="", description="The 'გამოკვლევა' value translated to professional English, preserving ICD-10 codes")
 
 
 class Forma100ExtractedDates(BaseModel):
@@ -1027,7 +1038,7 @@ def extract_invoice_and_forma100_data(client, invoice_pdf_bytes, forma100_pdf_by
             model=MODEL,
             contents=[
                 types.Part.from_bytes(data=invoice_pdf_bytes, mime_type="application/pdf"),
-                "Extract patient full name (transliterate to standard Latin uppercase letters), personal ID number (პირადი ნომერი, პ/ნ), total invoice amount (თანხა) in GEL, and the medical examination/diagnosis from the 'გამოკვლევა' column (extract both original Georgian and professional English translation including any ICD code).",
+                "Extract patient full name (transliterate to standard Latin uppercase letters), personal ID number (პირადი ნომერი, პ/ნ), total invoice amount (თანხა / სულ ჯამი) in GEL, and ALL rows from the invoice items/services table. For each row extract the examination/service description from the 'გამოკვლევა' column (provide both original Georgian and professional English translation including any ICD-10 code), quantity (default 1), unit (default 'Unit'), and row amount (თანხა) in GEL.",
             ],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -1062,12 +1073,41 @@ def extract_invoice_and_forma100_data(client, invoice_pdf_bytes, forma100_pdf_by
         inv_data = f_inv.result()
         f100_data = f_f100.result()
 
+    # Process items
+    raw_items = inv_data.get("items", [])
+    processed_items = []
+    if raw_items:
+        for it in raw_items:
+            exam_en = (it.get("examination_en") or it.get("examination_ge") or "").strip()
+            qty = int(it.get("quantity") or 1)
+            unit = str(it.get("unit") or "Unit").strip()
+            amt = float(it.get("amount_gel") or 0.0)
+            processed_items.append({
+                "examination_ge": it.get("examination_ge", "").strip(),
+                "examination_en": exam_en,
+                "quantity": qty,
+                "unit": unit,
+                "amount_gel": amt,
+            })
+
+    total_amount_gel = float(inv_data.get("total_amount_gel") or inv_data.get("amount") or 0.0)
+    if not total_amount_gel and processed_items:
+        total_amount_gel = sum(it["amount_gel"] for it in processed_items)
+
+    primary_exam = ""
+    if processed_items:
+        primary_exam = processed_items[0]["examination_en"]
+    else:
+        primary_exam = str(inv_data.get("examination_en") or inv_data.get("examination_ge") or "").strip()
+
     return {
         "patient_name_ge": inv_data.get("patient_name_ge", "").strip(),
         "patient_name_en": inv_data.get("patient_name_en", "").strip().upper(),
         "personal_number": str(inv_data.get("personal_number", "")).strip(),
-        "amount_gel": float(inv_data.get("amount", 0.0)),
-        "examination": str(inv_data.get("examination_en") or inv_data.get("examination_ge") or "").strip(),
+        "items": processed_items,
+        "amount_gel": total_amount_gel,
+        "total_amount_gel": total_amount_gel,
+        "examination": primary_exam,
         "admission_date": f100_data.get("admission_date", "").strip(),
         "discharge_date": f100_data.get("discharge_date", "").strip(),
     }
@@ -1078,10 +1118,11 @@ def populate_representative_invoice(
     personal_number: str,
     admission_date: str,
     discharge_date: str,
-    amount_gel: float,
+    amount_gel: float = 0.0,
     case_number: str = "[blank]",
     invoice_date: str = None,
     examination: str = "",
+    items: list = None,
     template_path: str = None,
 ):
     """Populates representative_invoice.html and compiles it to PDF."""
@@ -1094,16 +1135,49 @@ def populate_representative_invoice(
     if not invoice_date:
         invoice_date = datetime.now().strftime("%d/%m/%Y")
 
-    # Name column in items table displays the examination value
-    item_name = examination.strip() if examination.strip() else patient_name
+    # If items list is provided and non-empty, use multi-row logic; otherwise construct a single item
+    processed_rows = []
+    if items and isinstance(items, list) and len(items) > 0:
+        for it in items:
+            name_val = (it.get("examination_en") or it.get("examination_ge") or "").strip()
+            if not name_val:
+                name_val = examination.strip() if examination.strip() else patient_name
+            qty = int(it.get("quantity") or 1)
+            unit_val = str(it.get("unit") or "Unit").strip()
+            base_amt = float(it.get("amount_gel") or 0.0)
+            row_price_gel = round(base_amt * 1.18, 2)
+            row_price_str = f"{row_price_gel:,.2f}"
+            processed_rows.append({
+                "name": name_val,
+                "unit": unit_val,
+                "quantity": qty,
+                "price_gel": row_price_gel,
+                "price_gel_str": row_price_str,
+                "amount_gel": row_price_gel,
+                "amount_gel_str": row_price_str,
+            })
+    else:
+        # Single row fallback
+        single_name = examination.strip() if examination.strip() else patient_name
+        single_price_gel = round(amount_gel * 1.18, 2)
+        single_price_str = f"{single_price_gel:,.2f}"
+        processed_rows.append({
+            "name": single_name,
+            "unit": "Unit",
+            "quantity": 1,
+            "price_gel": single_price_gel,
+            "price_gel_str": single_price_str,
+            "amount_gel": single_price_gel,
+            "amount_gel_str": single_price_str,
+        })
 
-    # Calculations: Price = Amount * 1.18, Amount = Price
-    price_gel = round(amount_gel * 1.18, 2)
+    # Total GEL is the exact sum of all row amounts (each already including 18% VAT)
+    total_price_gel = round(sum(r["amount_gel"] for r in processed_rows), 2)
     rate_usd = get_usd_exchange_rate()
-    price_usd = round(price_gel * rate_usd, 2)
+    total_price_usd = round(total_price_gel * rate_usd, 2)
 
-    price_gel_str = f"{price_gel:,.2f}"
-    price_usd_str = f"{price_usd:,.2f}"
+    total_price_gel_str = f"{total_price_gel:,.2f}"
+    total_price_usd_str = f"{total_price_usd:,.2f}"
 
     # Replace Invoice Date (day/month/year)
     html = re.sub(r'<div class="invoice-date">[^<]*</div>', f'<div class="invoice-date">{invoice_date}</div>', html)
@@ -1115,22 +1189,23 @@ def populate_representative_invoice(
     html = re.sub(r"<div>admission:\s*[^<]*</div>", f"<div>admission: {admission_date}</div>", html)
     html = re.sub(r"<div>Discharge:\s*[^<]*</div>", f"<div>Discharge: {discharge_date}</div>", html)
 
-    # Replace Table Row (Name = Examination, Unit = Unit, Qty = 1, Price = price_gel, Amount = price_gel)
-    new_tbody = f"""<tbody>
-        <tr>
-          <td class="col-name">{item_name}</td>
-          <td class="col-unit">Unit</td>
-          <td class="col-qty">1</td>
-          <td class="col-price">{price_gel_str}</td>
-          <td class="col-amount">{price_gel_str}</td>
-        </tr>
-      </tbody>"""
+    # Build Table Rows HTML
+    table_rows_html = []
+    for r in processed_rows:
+        table_rows_html.append(f"""        <tr>
+          <td class="col-name">{r['name']}</td>
+          <td class="col-unit">{r['unit']}</td>
+          <td class="col-qty">{r['quantity']}</td>
+          <td class="col-price">{r['price_gel_str']}</td>
+          <td class="col-amount">{r['amount_gel_str']}</td>
+        </tr>""")
+    new_tbody = "<tbody>\n" + "\n".join(table_rows_html) + "\n      </tbody>"
     html = re.sub(r"<tbody>.*?</tbody>", new_tbody, html, flags=re.DOTALL)
 
     # Replace Totals (GEL and USD)
     new_totals = f"""<td class="totals-cell">
-          <div>{price_gel_str} GEL</div>
-          <div>{price_usd_str} USD</div>
+          <div>{total_price_gel_str} GEL</div>
+          <div>{total_price_usd_str} USD</div>
         </td>"""
     html = re.sub(r'<td class="totals-cell">.*?</td>', new_totals, html, flags=re.DOTALL)
 
@@ -1142,13 +1217,14 @@ def populate_representative_invoice(
         "admission_date": admission_date,
         "discharge_date": discharge_date,
         "invoice_date": invoice_date,
-        "examination": item_name,
+        "examination": processed_rows[0]["name"] if processed_rows else "",
+        "items": processed_rows,
         "amount_gel": amount_gel,
-        "price_gel": price_gel,
-        "price_gel_str": price_gel_str,
+        "price_gel": total_price_gel,
+        "price_gel_str": total_price_gel_str,
         "rate_usd": rate_usd,
-        "price_usd": price_usd,
-        "price_usd_str": price_usd_str,
+        "price_usd": total_price_usd,
+        "price_usd_str": total_price_usd_str,
     }
 
 
@@ -1179,6 +1255,7 @@ def run_cli(argv):
             discharge_date=extracted["discharge_date"],
             amount_gel=extracted["amount_gel"],
             examination=extracted.get("examination", ""),
+            items=extracted.get("items", []),
         )
         safe_pname = re.sub(r'[\s]+', '_', info['patient_name'])
         pdf_path = os.path.join(out_dir, f"Invoice_{safe_pname}_EN.pdf")
@@ -1334,6 +1411,7 @@ def run_streamlit():
                         case_number="[blank]",
                         invoice_date=current_inv_date,
                         examination=extracted.get("examination", ""),
+                        items=extracted.get("items", []),
                     )
                     st.session_state["rep_extracted"] = extracted
                     st.session_state["rep_info"] = info

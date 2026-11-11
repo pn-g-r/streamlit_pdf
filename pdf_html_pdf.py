@@ -1232,6 +1232,16 @@ def run_streamlit():
 
     if app_mode == "ინგლისური ინვოისის გენერირება (ინვოისი + ფორმა 100)":
         st.write("ატვირთეთ ქართული ინვოისი და ფორმა №100. სისტემა ამოიღებს პაციენტის მონაცემებს, თარიღებს, გამოთვლის საბოლოო თანხას (+18%) და გენერირებს ოფიციალურ ინგლისურ ინვოისს.")
+
+        workflow_rep = st.radio(
+            "აირჩიეთ დამუშავების ფორმატი:",
+            [
+                "პირდაპირ PDF-ის გენერირება",
+                "ჯერ რედაქტირებადი HTML-ის ნახვა (და შემდეგ PDF-ად გარდაქმნა)"
+            ],
+            horizontal=True,
+            key="workflow_rep_choice"
+        )
         
         col1, col2 = st.columns(2)
         inv_bytes, f100_bytes = None, None
@@ -1249,102 +1259,162 @@ def run_streamlit():
             _render_footer()
             return
 
-        if not st.button("ინგლისური ინვოისის გენერირება", type="primary", use_container_width=True, key="btn_run_rep"):
-            _render_footer()
-            return
+        btn_action_label = "HTML-ის მომზადება რედაქტირებისთვის" if workflow_rep.startswith("ჯერ") else "ინგლისური ინვოისის გენერირება (PDF)"
 
-        if not os.environ.get("GEMINI_API_KEY"):
-            st.error("Gemini API გასაღები ვერ მოიძებნა! გთხოვთ, შეიყვანოთ გასაღები გვერდითა მენიუში ან მიუთითოთ Streamlit Secrets-ში.")
-            return
+        if st.button(btn_action_label, type="primary", use_container_width=True, key="btn_run_rep"):
+            if not os.environ.get("GEMINI_API_KEY"):
+                st.error("Gemini API გასაღები ვერ მოიძებნა! გთხოვთ, შეიყვანოთ გასაღები გვერდითა მენიუში ან მიუთითოთ Streamlit Secrets-ში.")
+                return
 
-        t0 = time.time()
-        client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"), http_options={"api_version": "v1beta"})
-        try:
-            with st.spinner("მიმდინარეობს მონაცემების ექსტრაქცია და ინვოისის შედგენა..."):
-                extracted = extract_invoice_and_forma100_data(client, inv_bytes, f100_bytes)
-                html_rep, pdf_rep, info = populate_representative_invoice(
-                    patient_name=extracted["patient_name_en"],
-                    personal_number=extracted["personal_number"],
-                    admission_date=extracted["admission_date"],
-                    discharge_date=extracted["discharge_date"],
-                    amount_gel=extracted["amount_gel"],
-                    case_number="[blank]",
+            t0 = time.time()
+            client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"), http_options={"api_version": "v1beta"})
+            try:
+                with st.spinner("მიმდინარეობს მონაცემების ექსტრაქცია და ინვოისის შედგენა..."):
+                    extracted = extract_invoice_and_forma100_data(client, inv_bytes, f100_bytes)
+                    html_rep, pdf_rep, info = populate_representative_invoice(
+                        patient_name=extracted["patient_name_en"],
+                        personal_number=extracted["personal_number"],
+                        admission_date=extracted["admission_date"],
+                        discharge_date=extracted["discharge_date"],
+                        amount_gel=extracted["amount_gel"],
+                        case_number="[blank]",
+                    )
+                    st.session_state["rep_extracted"] = extracted
+                    st.session_state["rep_info"] = info
+                    st.session_state["rep_html"] = html_rep
+                    if not workflow_rep.startswith("ჯერ"):
+                        st.session_state["rep_pdf"] = pdf_rep
+                    else:
+                        st.session_state["rep_pdf"] = None
+                    st.session_state["rep_duration"] = time.time() - t0
+            except Exception as exc:
+                st.error(f"შეცდომა ინვოისის გენერირებისას: {str(exc)}")
+                import traceback
+                st.code(traceback.format_exc(), language="python")
+                return
+
+        # If data is generated in session state
+        if st.session_state.get("rep_html"):
+            info = st.session_state["rep_info"]
+            duration = st.session_state.get("rep_duration", 0.0)
+
+            if workflow_rep.startswith("ჯერ"):
+                st.markdown("---")
+                st.subheader("დოკუმენტის რედაქტირება")
+                st.write("შეცვალეთ მონაცემები ველებში ან პირდაპირ HTML კოდში, შემდეგ დააჭირეთ PDF-ად გარდაქმნას.")
+
+                # Quick fields
+                c_p1, c_p2, c_p3 = st.columns(3)
+                with c_p1:
+                    edit_pname = st.text_input("პაციენტის სახელი (ინგლისურად):", value=info["patient_name"], key="edit_pname")
+                with c_p2:
+                    edit_pid = st.text_input("პირადი ნომერი:", value=info["personal_number"], key="edit_pid")
+                with c_p3:
+                    edit_amount = st.number_input("საწყისი თანხა GEL (18%-მდე):", value=float(info["amount_gel"]), key="edit_amount")
+                c_p4, c_p5, c_p6 = st.columns(3)
+                with c_p4:
+                    edit_adm = st.text_input("სტაციონარში მოთავსება:", value=info["admission_date"], key="edit_adm")
+                with c_p5:
+                    edit_dis = st.text_input("გაწერა:", value=info["discharge_date"], key="edit_dis")
+                with c_p6:
+                    edit_case = st.text_input("Case number:", value=info.get("case_number", "[blank]"), key="edit_case")
+
+                if st.button("ველების მიხედვით HTML-ის განახლება", key="btn_update_fields"):
+                    html_updated, _, updated_info = populate_representative_invoice(
+                        patient_name=edit_pname.strip().upper(),
+                        personal_number=edit_pid.strip(),
+                        admission_date=edit_adm.strip(),
+                        discharge_date=edit_dis.strip(),
+                        amount_gel=edit_amount,
+                        case_number=edit_case.strip(),
+                    )
+                    st.session_state["rep_html"] = html_updated
+                    st.session_state["rep_info"] = updated_info
+                    st.session_state["rep_pdf"] = None
+                    st.rerun()
+
+                edited_html = st.text_area("HTML რედაქტორი:", value=st.session_state["rep_html"], height=350, key="rep_html_editor")
+                st.session_state["rep_html"] = edited_html
+
+                st.markdown("### წინასწარი გადახედვა (Live Preview)")
+                components.html(st.session_state["rep_html"], height=800, scrolling=True)
+
+                if st.button("რედაქტირებული HTML-ის PDF-ად გარდაქმნა", type="primary", use_container_width=True, key="rep_convert_pdf"):
+                    with st.spinner("მიმდინარეობს PDF ფაილის გენერირება..."):
+                        pdf_created = html_to_pdf(st.session_state["rep_html"])
+                        st.session_state["rep_pdf"] = pdf_created
+                        st.success("PDF წარმატებით შეიქმნა!")
+
+            # If PDF is ready (either direct or converted from editable HTML)
+            if st.session_state.get("rep_pdf"):
+                pdf_data = st.session_state["rep_pdf"]
+                st.success("ინვოისი მზადაა!")
+
+                # Metric summary
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("პაციენტი", info["patient_name"])
+                m2.metric("პირადი ნომერი", info["personal_number"])
+                m3.metric("თანხა GEL (+18%)", f"{info['price_gel_str']} GEL")
+                m4.metric("თანხა USD", f"{info['price_usd_str']} USD")
+
+                st.caption(f"სტაციონარში მოთავსება: **{info['admission_date']}** | გაწერა: **{info['discharge_date']}** | კურსი: 1 GEL = {info['rate_usd']:.4f} USD")
+
+                safe_pname = re.sub(r'[\s]+', '_', info['patient_name'])
+                st.download_button(
+                    "ინგლისური ინვოისის ჩამოტვირთვა (PDF)",
+                    data=pdf_data,
+                    file_name=f"Invoice_{safe_pname}_EN.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key="dl_rep_pdf"
                 )
-        except Exception as exc:
-            st.error(f"შეცდომა ინვოისის გენერირებისას: {str(exc)}")
-            import traceback
-            st.code(traceback.format_exc(), language="python")
-            return
 
-        duration = time.time() - t0
-        st.success(f"ინვოისი წარმატებით შეიქმნა {duration:.1f} წამში!")
+                b64_pdf = base64.b64encode(pdf_data).decode("ascii")
+                components.html(
+                    f"""
+                    <div style="margin: 4px 0 10px 0; text-align: center;">
+                        <a id="iosOpenBtn" href="#" target="_blank" style="
+                            display: block;
+                            background: linear-gradient(135deg, #1e3a8a, #2563eb);
+                            color: #ffffff;
+                            text-align: center;
+                            padding: 13px 20px;
+                            border-radius: 8px;
+                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                            font-size: 15px;
+                            font-weight: 600;
+                            text-decoration: none;
+                            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+                        ">დააჭირეთ აქ PDF-ის პირდაპირ სანახავად / შესანახად (ტელეფონი / Safari)</a>
+                    </div>
+                    <script>
+                    try {{
+                        const b64 = "{b64_pdf}";
+                        const byteChars = atob(b64);
+                        const byteNums = new Array(byteChars.length);
+                        for (let i = 0; i < byteChars.length; i++) {{
+                            byteNums[i] = byteChars.charCodeAt(i);
+                        }}
+                        const byteArray = new Uint8Array(byteNums);
+                        const blob = new Blob([byteArray], {{ type: 'application/pdf' }});
+                        const blobUrl = URL.createObjectURL(blob);
+                        const btn = document.getElementById("iosOpenBtn");
+                        btn.href = blobUrl;
+                    }} catch(e) {{
+                        console.error("Blob URL generation error:", e);
+                    }}
+                    </script>
+                    """,
+                    height=65
+                )
 
-        # Metric summary
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("პაციენტი", info["patient_name"])
-        m2.metric("პირადი ნომერი", info["personal_number"])
-        m3.metric("თანხა GEL (+18%)", f"{info['price_gel_str']} GEL")
-        m4.metric("თანხა USD", f"{info['price_usd_str']} USD")
-
-        st.caption(f"სტაციონარში მოთავსება: **{info['admission_date']}** | გაწერა: **{info['discharge_date']}** | კურსი: 1 GEL = {info['rate_usd']:.4f} USD")
-
-        # Download button
-        safe_pname = re.sub(r'[\s]+', '_', info['patient_name'])
-        st.download_button(
-            "ინგლისური ინვოისის ჩამოტვირთვა (PDF)",
-            data=pdf_rep,
-            file_name=f"Invoice_{safe_pname}_EN.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-            key="dl_rep_pdf"
-        )
-
-        # iOS Safari link
-        b64_pdf = base64.b64encode(pdf_rep).decode("ascii")
-        components.html(
-            f"""
-            <div style="margin: 4px 0 10px 0; text-align: center;">
-                <a id="iosOpenBtn" href="#" target="_blank" style="
-                    display: block;
-                    background: linear-gradient(135deg, #1e3a8a, #2563eb);
-                    color: #ffffff;
-                    text-align: center;
-                    padding: 13px 20px;
-                    border-radius: 8px;
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    font-size: 15px;
-                    font-weight: 600;
-                    text-decoration: none;
-                    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
-                ">დააჭირეთ აქ PDF-ის პირდაპირ სანახავად / შესანახად (ტელეფონი / Safari)</a>
-            </div>
-            <script>
-            try {{
-                const b64 = "{b64_pdf}";
-                const byteChars = atob(b64);
-                const byteNums = new Array(byteChars.length);
-                for (let i = 0; i < byteChars.length; i++) {{
-                    byteNums[i] = byteChars.charCodeAt(i);
-                }}
-                const byteArray = new Uint8Array(byteNums);
-                const blob = new Blob([byteArray], {{ type: 'application/pdf' }});
-                const blobUrl = URL.createObjectURL(blob);
-                const btn = document.getElementById("iosOpenBtn");
-                btn.href = blobUrl;
-            }} catch(e) {{
-                console.error("Blob URL generation error:", e);
-            }}
-            </script>
-            """,
-            height=65
-        )
-
-        st.markdown("### დოკუმენტის გადახედვა")
-        tab_v1, tab_v2 = st.tabs(["ინვოისის გადახედვა", "HTML კოდი"])
-        with tab_v1:
-            components.html(html_rep, height=850, scrolling=True)
-        with tab_v2:
-            st.code(html_rep, language="html")
+                if not workflow_rep.startswith("ჯერ"):
+                    st.markdown("### დოკუმენტის გადახედვა")
+                    tab_v1, tab_v2 = st.tabs(["ინვოისის გადახედვა", "HTML კოდი"])
+                    with tab_v1:
+                        components.html(st.session_state["rep_html"], height=850, scrolling=True)
+                    with tab_v2:
+                        st.code(st.session_state["rep_html"], language="html")
 
         _render_footer()
         return
@@ -1353,6 +1423,16 @@ def run_streamlit():
     # Mode 2: Existing Document Translation
     # -----------------------------------------------------------------------
     st.write("ქართული სამედიცინო დოკუმენტების პროფესიონალური ინგლისური თარგმანი ოფიციალური ფორმატით და დახვეწილი დიზაინით.")
+
+    workflow_trans = st.radio(
+        "აირჩიეთ დამუშავების ფორმატი:",
+        [
+            "პირდაპირ PDF-ის გენერირება",
+            "ჯერ რედაქტირებადი HTML-ის ნახვა (და შემდეგ PDF-ად გარდაქმნა)"
+        ],
+        horizontal=True,
+        key="workflow_trans_choice"
+    )
 
     # Input selection: upload file
     pdf_bytes = None
@@ -1373,110 +1453,139 @@ def run_streamlit():
         include_excel = st.checkbox("მონაცემების ექსპორტი Excel-ში (.xlsx)", value=False,
                                     help="სწრაფი თარგმანისთვის (~5-10 წმ) დატოვეთ მონიშვნის გარეშე. მონიშნეთ მხოლოდ ცხრილების Excel-ში გადატანის საჭიროებისას.")
 
-    if not st.button("თარგმნა და ინგლისური დოკუმენტის გენერირება", type="primary", use_container_width=True):
-        _render_footer()
-        return
+    btn_trans_label = "თარგმნა და HTML-ის მომზადება რედაქტირებისთვის" if workflow_trans.startswith("ჯერ") else "თარგმნა და ინგლისური დოკუმენტის გენერირება (PDF)"
 
-    if not os.environ.get("GEMINI_API_KEY"):
-        st.error("Gemini API გასაღები ვერ მოიძებნა! გთხოვთ, შეიყვანოთ გასაღები გვერდითა მენიუში ან მიუთითოთ Streamlit Secrets-ში.")
-        return
+    if st.button(btn_trans_label, type="primary", use_container_width=True, key="btn_run_trans"):
+        if not os.environ.get("GEMINI_API_KEY"):
+            st.error("Gemini API გასაღები ვერ მოიძებნა! გთხოვთ, შეიყვანოთ გასაღები გვერდითა მენიუში ან მიუთითოთ Streamlit Secrets-ში.")
+            return
 
-    bar = st.progress(0.0, text="მიმდინარეობს სამედიცინო ტექსტის თარგმნა და დოკუმენტის ფორმატირება...")
-    t0 = time.time()
-    try:
-        with st.spinner("მიმდინარეობს დოკუმენტის სტრუქტურისა და სამედიცინო ტერმინოლოგიის დამუშავება..."):
-            pdf_data, full_html, excel_data, df_fields, df_tables = process_document(
-                pdf_bytes,
-                progress=lambda f: bar.progress(f, text=f"დამუშავებულია გვერდების {f:.0%}"),
-                with_excel=include_excel
-            )
-    except Exception as exc:
-        bar.empty()
-        st.error(f"შეცდომა დოკუმენტის დამუშავებისას: {str(exc)}")
-        import traceback
-        st.code(traceback.format_exc(), language="python")
-        return
-    bar.empty()
-    duration = time.time() - t0
-    st.success(f"თარგმანი წარმატებით დასრულდა {duration:.1f} წამში!")
-
-    stem = os.path.splitext(file_name)[0]
-    safe_stem = re.sub(r'[\s]+', '_', stem.strip())
-
-    # Action buttons
-    if include_excel and excel_data:
-        col_dl1, col_dl2 = st.columns(2)
-        with col_dl1:
-            st.download_button("ინგლისური PDF-ის ჩამოტვირთვა", data=pdf_data, file_name=f"{safe_stem}_EN.pdf",
-                               mime="application/pdf", use_container_width=True)
-        with col_dl2:
-            st.download_button("სტრუქტურირებული Excel-ის (.xlsx) ჩამოტვირთვა", data=excel_data, file_name=f"{safe_stem}_data.xlsx",
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                               use_container_width=True)
-    else:
-        st.download_button("ინგლისური PDF-ის ჩამოტვირთვა", data=pdf_data, file_name=f"{safe_stem}_EN.pdf",
-                           mime="application/pdf", use_container_width=True)
-
-    # Mobile Safari direct Blob viewer (solves iOS Safari download manager issues)
-    b64_pdf = base64.b64encode(pdf_data).decode("ascii")
-    components.html(
-        f"""
-        <div style="margin: 4px 0 10px 0; text-align: center;">
-            <a id="iosOpenBtn" href="#" target="_blank" style="
-                display: block;
-                background: linear-gradient(135deg, #1e3a8a, #2563eb);
-                color: #ffffff;
-                text-align: center;
-                padding: 13px 20px;
-                border-radius: 8px;
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                font-size: 15px;
-                font-weight: 600;
-                text-decoration: none;
-                box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
-            ">დააჭირეთ აქ PDF-ის პირდაპირ სანახავად / შესანახად (ტელეფონი / Safari)</a>
-        </div>
-        <script>
-        try {{
-            const b64 = "{b64_pdf}";
-            const byteChars = atob(b64);
-            const byteNums = new Array(byteChars.length);
-            for (let i = 0; i < byteChars.length; i++) {{
-                byteNums[i] = byteChars.charCodeAt(i);
-            }}
-            const byteArray = new Uint8Array(byteNums);
-            const blob = new Blob([byteArray], {{ type: 'application/pdf' }});
-            const blobUrl = URL.createObjectURL(blob);
-            const btn = document.getElementById("iosOpenBtn");
-            btn.href = blobUrl;
-        }} catch(e) {{
-            console.error("Blob URL generation error:", e);
-        }}
-        </script>
-        """,
-        height=65
-    )
-
-    # Document Preview Tabs
-    st.markdown("### დოკუმენტის გადახედვა")
-    tabs = st.tabs(["დოკუმენტის გადახედვა", "HTML კოდი"] + (["სტრუქტურირებული მონაცემები"] if (include_excel and not df_fields.empty) else []))
-    
-    with tabs[0]:
-        components.html(full_html, height=800, scrolling=True)
-
-    with tabs[1]:
-        st.code(full_html, language="html")
-
-    if include_excel and not df_fields.empty and len(tabs) > 2:
-        with tabs[2]:
-            subtab1, subtab2 = st.tabs(["დოკუმენტის ველები", "ცხრილის მონაცემები"])
-            with subtab1:
-                st.dataframe(df_fields, use_container_width=True)
-            with subtab2:
-                if not df_tables.empty:
-                    st.dataframe(df_tables, use_container_width=True)
+        bar = st.progress(0.0, text="მიმდინარეობს სამედიცინო ტექსტის თარგმნა და დოკუმენტის ფორმატირება...")
+        t0 = time.time()
+        try:
+            with st.spinner("მიმდინარეობს დოკუმენტის სტრუქტურისა და სამედიცინო ტერმინოლოგიის დამუშავება..."):
+                pdf_data, full_html, excel_data, df_fields, df_tables = process_document(
+                    pdf_bytes,
+                    progress=lambda f: bar.progress(f, text=f"დამუშავებულია გვერდების {f:.0%}"),
+                    with_excel=include_excel
+                )
+                st.session_state["trans_html"] = full_html
+                st.session_state["trans_excel_data"] = excel_data
+                st.session_state["trans_df_fields"] = df_fields
+                st.session_state["trans_df_tables"] = df_tables
+                st.session_state["trans_duration"] = time.time() - t0
+                st.session_state["trans_file_name"] = file_name
+                if not workflow_trans.startswith("ჯერ"):
+                    st.session_state["trans_pdf"] = pdf_data
                 else:
-                    st.info("ამ დოკუმენტში მრავალსტრიქონიანი ცხრილები ვერ მოიძებნა.")
+                    st.session_state["trans_pdf"] = None
+        except Exception as exc:
+            bar.empty()
+            st.error(f"შეცდომა დოკუმენტის დამუშავებისას: {str(exc)}")
+            import traceback
+            st.code(traceback.format_exc(), language="python")
+            return
+        bar.empty()
+
+    if st.session_state.get("trans_html"):
+        duration = st.session_state.get("trans_duration", 0.0)
+        file_name = st.session_state.get("trans_file_name", "translated_document")
+        stem = os.path.splitext(file_name)[0]
+        safe_stem = re.sub(r'[\s]+', '_', stem.strip())
+
+        if workflow_trans.startswith("ჯერ"):
+            st.markdown("---")
+            st.subheader("თარგმნილი დოკუმენტის რედაქტირება")
+            st.write("შეცვალეთ ნებისმიერი ტექსტი, დიაგნოზი ან მონაცემი ქვემოთ მოცემულ რედაქტორში, შემდეგ დააჭირეთ PDF-ად გარდაქმნას.")
+
+            edited_trans_html = st.text_area("HTML რედაქტორი:", value=st.session_state["trans_html"], height=400, key="trans_html_editor")
+            st.session_state["trans_html"] = edited_trans_html
+
+            st.markdown("### წინასწარი გადახედვა (Live Preview)")
+            components.html(st.session_state["trans_html"], height=800, scrolling=True)
+
+            if st.button("რედაქტირებული დოკუმენტის PDF-ად გარდაქმნა", type="primary", use_container_width=True, key="btn_convert_trans_pdf"):
+                with st.spinner("მიმდინარეობს PDF ფაილის გენერირება..."):
+                    pdf_created = html_to_pdf(st.session_state["trans_html"])
+                    st.session_state["trans_pdf"] = pdf_created
+                    st.success("PDF წარმატებით შეიქმნა!")
+
+        if st.session_state.get("trans_pdf"):
+            pdf_data = st.session_state["trans_pdf"]
+            st.success(f"თარგმანი მზადაა ({duration:.1f} წამი)!")
+
+            excel_data = st.session_state.get("trans_excel_data")
+            if include_excel and excel_data:
+                col_dl1, col_dl2 = st.columns(2)
+                with col_dl1:
+                    st.download_button("ინგლისური PDF-ის ჩამოტვირთვა", data=pdf_data, file_name=f"{safe_stem}_EN.pdf",
+                                       mime="application/pdf", use_container_width=True, key="dl_trans_pdf_btn")
+                with col_dl2:
+                    st.download_button("სტრუქტურირებული Excel-ის (.xlsx) ჩამოტვირთვა", data=excel_data, file_name=f"{safe_stem}_data.xlsx",
+                                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                       use_container_width=True, key="dl_trans_excel_btn")
+            else:
+                st.download_button("ინგლისური PDF-ის ჩამოტვირთვა", data=pdf_data, file_name=f"{safe_stem}_EN.pdf",
+                                   mime="application/pdf", use_container_width=True, key="dl_trans_pdf_btn")
+
+            b64_pdf = base64.b64encode(pdf_data).decode("ascii")
+            components.html(
+                f"""
+                <div style="margin: 4px 0 10px 0; text-align: center;">
+                    <a id="iosOpenBtn" href="#" target="_blank" style="
+                        display: block;
+                        background: linear-gradient(135deg, #1e3a8a, #2563eb);
+                        color: #ffffff;
+                        text-align: center;
+                        padding: 13px 20px;
+                        border-radius: 8px;
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        font-size: 15px;
+                        font-weight: 600;
+                        text-decoration: none;
+                        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+                    ">დააჭირეთ აქ PDF-ის პირდაპირ სანახავად / შესანახად (ტელეფონი / Safari)</a>
+                </div>
+                <script>
+                try {{
+                    const b64 = "{b64_pdf}";
+                    const byteChars = atob(b64);
+                    const byteNums = new Array(byteChars.length);
+                    for (let i = 0; i < byteChars.length; i++) {{
+                        byteNums[i] = byteChars.charCodeAt(i);
+                    }}
+                    const byteArray = new Uint8Array(byteNums);
+                    const blob = new Blob([byteArray], {{ type: 'application/pdf' }});
+                    const blobUrl = URL.createObjectURL(blob);
+                    const btn = document.getElementById("iosOpenBtn");
+                    btn.href = blobUrl;
+                }} catch(e) {{
+                    console.error("Blob URL generation error:", e);
+                }}
+                </script>
+                """,
+                height=65
+            )
+
+            if not workflow_trans.startswith("ჯერ"):
+                st.markdown("### დოკუმენტის გადახედვა")
+                df_fields = st.session_state.get("trans_df_fields", pd.DataFrame())
+                df_tables = st.session_state.get("trans_df_tables", pd.DataFrame())
+                tabs = st.tabs(["დოკუმენტის გადახედვა", "HTML კოდი"] + (["სტრუქტურირებული მონაცემები"] if (include_excel and not df_fields.empty) else []))
+                with tabs[0]:
+                    components.html(st.session_state["trans_html"], height=800, scrolling=True)
+                with tabs[1]:
+                    st.code(st.session_state["trans_html"], language="html")
+                if include_excel and not df_fields.empty and len(tabs) > 2:
+                    with tabs[2]:
+                        subtab1, subtab2 = st.tabs(["დოკუმენტის ველები", "ცხრილის მონაცემები"])
+                        with subtab1:
+                            st.dataframe(df_fields, use_container_width=True)
+                        with subtab2:
+                            if not df_tables.empty:
+                                st.dataframe(df_tables, use_container_width=True)
+                            else:
+                                st.info("ამ დოკუმენტში მრავალსტრიქონიანი ცხრილები ვერ მოიძებნა.")
 
     _render_footer()
 

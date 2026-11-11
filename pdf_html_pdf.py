@@ -111,6 +111,8 @@ class InvoiceExtractedData(BaseModel):
     patient_name_en: str = Field(description="Patient full name transliterated to English/Latin uppercase (e.g. TATIANA ALIEVA)")
     personal_number: str = Field(description="Personal ID number (პირადი ნომერი, პ/ნ)")
     amount: float = Field(description="Total invoice amount in GEL (თანხა)")
+    examination_ge: str = Field(default="", description="The exact value of the 'გამოკვლევა' field from the invoice in Georgian")
+    examination_en: str = Field(default="", description="The 'გამოკვლევა' value translated to professional English, preserving ICD-10 codes (e.g. 'S06.6 Traumatic subarachnoid hemorrhage')")
 
 
 class Forma100ExtractedDates(BaseModel):
@@ -1025,7 +1027,7 @@ def extract_invoice_and_forma100_data(client, invoice_pdf_bytes, forma100_pdf_by
             model=MODEL,
             contents=[
                 types.Part.from_bytes(data=invoice_pdf_bytes, mime_type="application/pdf"),
-                "Extract patient full name (transliterate to standard Latin uppercase letters), personal ID number (პირადი ნომერი, პ/ნ), and total invoice amount (თანხა) in GEL.",
+                "Extract patient full name (transliterate to standard Latin uppercase letters), personal ID number (პირადი ნომერი, პ/ნ), total invoice amount (თანხა) in GEL, and the medical examination/diagnosis from the 'გამოკვლევა' column (extract both original Georgian and professional English translation including any ICD code).",
             ],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -1065,6 +1067,7 @@ def extract_invoice_and_forma100_data(client, invoice_pdf_bytes, forma100_pdf_by
         "patient_name_en": inv_data.get("patient_name_en", "").strip().upper(),
         "personal_number": str(inv_data.get("personal_number", "")).strip(),
         "amount_gel": float(inv_data.get("amount", 0.0)),
+        "examination": str(inv_data.get("examination_en") or inv_data.get("examination_ge") or "").strip(),
         "admission_date": f100_data.get("admission_date", "").strip(),
         "discharge_date": f100_data.get("discharge_date", "").strip(),
     }
@@ -1078,6 +1081,7 @@ def populate_representative_invoice(
     amount_gel: float,
     case_number: str = "[blank]",
     invoice_date: str = None,
+    examination: str = "",
     template_path: str = None,
 ):
     """Populates representative_invoice.html and compiles it to PDF."""
@@ -1089,6 +1093,9 @@ def populate_representative_invoice(
 
     if not invoice_date:
         invoice_date = datetime.now().strftime("%d/%m/%Y")
+
+    # Name column in items table displays the examination value
+    item_name = examination.strip() if examination.strip() else patient_name
 
     # Calculations: Price = Amount * 1.18, Amount = Price
     price_gel = round(amount_gel * 1.18, 2)
@@ -1108,10 +1115,10 @@ def populate_representative_invoice(
     html = re.sub(r"<div>admission:\s*[^<]*</div>", f"<div>admission: {admission_date}</div>", html)
     html = re.sub(r"<div>Discharge:\s*[^<]*</div>", f"<div>Discharge: {discharge_date}</div>", html)
 
-    # Replace Table Row (Name = Patient Name, Unit = Unit, Qty = 1, Price = price_gel, Amount = price_gel)
+    # Replace Table Row (Name = Examination, Unit = Unit, Qty = 1, Price = price_gel, Amount = price_gel)
     new_tbody = f"""<tbody>
         <tr>
-          <td class="col-name">{patient_name}</td>
+          <td class="col-name">{item_name}</td>
           <td class="col-unit">Unit</td>
           <td class="col-qty">1</td>
           <td class="col-price">{price_gel_str}</td>
@@ -1135,6 +1142,7 @@ def populate_representative_invoice(
         "admission_date": admission_date,
         "discharge_date": discharge_date,
         "invoice_date": invoice_date,
+        "examination": item_name,
         "amount_gel": amount_gel,
         "price_gel": price_gel,
         "price_gel_str": price_gel_str,
@@ -1170,6 +1178,7 @@ def run_cli(argv):
             admission_date=extracted["admission_date"],
             discharge_date=extracted["discharge_date"],
             amount_gel=extracted["amount_gel"],
+            examination=extracted.get("examination", ""),
         )
         safe_pname = re.sub(r'[\s]+', '_', info['patient_name'])
         pdf_path = os.path.join(out_dir, f"Invoice_{safe_pname}_EN.pdf")
@@ -1324,6 +1333,7 @@ def run_streamlit():
                         amount_gel=extracted["amount_gel"],
                         case_number="[blank]",
                         invoice_date=current_inv_date,
+                        examination=extracted.get("examination", ""),
                     )
                     st.session_state["rep_extracted"] = extracted
                     st.session_state["rep_info"] = info

@@ -1282,6 +1282,22 @@ def run_streamlit():
                     st.session_state["rep_extracted"] = extracted
                     st.session_state["rep_info"] = info
                     st.session_state["rep_html"] = html_rep
+                    # Initialize editable fields
+                    st.session_state["edit_pname"] = info["patient_name"]
+                    st.session_state["edit_pid"] = info["personal_number"]
+                    st.session_state["edit_amount"] = float(info["amount_gel"])
+                    st.session_state["edit_adm"] = info["admission_date"]
+                    st.session_state["edit_dis"] = info["discharge_date"]
+                    st.session_state["edit_case"] = info.get("case_number", "[blank]")
+                    st.session_state["rep_html_editor"] = html_rep
+                    st.session_state["rep_applied_fields"] = (
+                        info["patient_name"],
+                        info["personal_number"],
+                        float(info["amount_gel"]),
+                        info["admission_date"],
+                        info["discharge_date"],
+                        info.get("case_number", "[blank]"),
+                    )
                     if not workflow_rep.startswith("ჯერ"):
                         st.session_state["rep_pdf"] = pdf_rep
                     else:
@@ -1301,53 +1317,109 @@ def run_streamlit():
             if workflow_rep.startswith("ჯერ"):
                 st.markdown("---")
                 st.subheader("დოკუმენტის რედაქტირება")
-                st.write("შეცვალეთ მონაცემები ველებში ან პირდაპირ HTML კოდში, შემდეგ დააჭირეთ PDF-ად გარდაქმნას.")
+                st.write("შეცვალეთ მონაცემები ველებში ან პირდაპირ HTML კოდში. ცვლილებები ავტომატურად აისახება გადახედვაში და PDF-ში.")
 
-                # Quick fields
-                c_p1, c_p2, c_p3 = st.columns(3)
-                with c_p1:
-                    edit_pname = st.text_input("პაციენტის სახელი (ინგლისურად):", value=info["patient_name"], key="edit_pname")
-                with c_p2:
-                    edit_pid = st.text_input("პირადი ნომერი:", value=info["personal_number"], key="edit_pid")
-                with c_p3:
-                    edit_amount = st.number_input("საწყისი თანხა GEL (18%-მდე):", value=float(info["amount_gel"]), key="edit_amount")
-                c_p4, c_p5, c_p6 = st.columns(3)
-                with c_p4:
-                    edit_adm = st.text_input("სტაციონარში მოთავსება:", value=info["admission_date"], key="edit_adm")
-                with c_p5:
-                    edit_dis = st.text_input("გაწერა:", value=info["discharge_date"], key="edit_dis")
-                with c_p6:
-                    edit_case = st.text_input("Case number:", value=info.get("case_number", "[blank]"), key="edit_case")
+                edit_mode = st.radio(
+                    "რედაქტირების რეჟიმი:",
+                    ["მონაცემთა ველები (სახელი, პირადი №, თანხა, თარიღები)", "HTML კოდის პირდაპირი რედაქტირება"],
+                    horizontal=True,
+                    key="rep_edit_mode"
+                )
 
-                if st.button("ველების მიხედვით HTML-ის განახლება", key="btn_update_fields"):
-                    html_updated, _, updated_info = populate_representative_invoice(
-                        patient_name=edit_pname.strip().upper(),
-                        personal_number=edit_pid.strip(),
-                        admission_date=edit_adm.strip(),
-                        discharge_date=edit_dis.strip(),
-                        amount_gel=edit_amount,
-                        case_number=edit_case.strip(),
+                if "edit_pname" not in st.session_state:
+                    st.session_state["edit_pname"] = info["patient_name"]
+                    st.session_state["edit_pid"] = info["personal_number"]
+                    st.session_state["edit_amount"] = float(info["amount_gel"])
+                    st.session_state["edit_adm"] = info["admission_date"]
+                    st.session_state["edit_dis"] = info["discharge_date"]
+                    st.session_state["edit_case"] = info.get("case_number", "[blank]")
+                    st.session_state["rep_applied_fields"] = (
+                        info["patient_name"],
+                        info["personal_number"],
+                        float(info["amount_gel"]),
+                        info["admission_date"],
+                        info["discharge_date"],
+                        info.get("case_number", "[blank]"),
                     )
-                    st.session_state["rep_html"] = html_updated
-                    st.session_state["rep_info"] = updated_info
-                    st.session_state["rep_pdf"] = None
-                    st.rerun()
 
-                edited_html = st.text_area("HTML რედაქტორი:", value=st.session_state["rep_html"], height=350, key="rep_html_editor")
-                st.session_state["rep_html"] = edited_html
+                if edit_mode.startswith("მონაცემთა ველები"):
+                    c_p1, c_p2, c_p3 = st.columns(3)
+                    with c_p1:
+                        edit_pname = st.text_input("პაციენტის სახელი (ინგლისურად):", key="edit_pname")
+                    with c_p2:
+                        edit_pid = st.text_input("პირადი ნომერი:", key="edit_pid")
+                    with c_p3:
+                        edit_amount = st.number_input("საწყისი თანხა GEL (18%-მდე):", min_value=0.0, step=1.0, format="%.2f", key="edit_amount",
+                                                      help=f"საბოლოო თანხა (+18%): {float(st.session_state.get('edit_amount', 0.0)) * 1.18:,.2f} GEL")
+                    c_p4, c_p5, c_p6 = st.columns(3)
+                    with c_p4:
+                        edit_adm = st.text_input("სტაციონარში მოთავსება:", key="edit_adm")
+                    with c_p5:
+                        edit_dis = st.text_input("გაწერა:", key="edit_dis")
+                    with c_p6:
+                        edit_case = st.text_input("Case number:", key="edit_case")
+
+                    current_tuple = (
+                        edit_pname.strip().upper(),
+                        edit_pid.strip(),
+                        float(edit_amount),
+                        edit_adm.strip(),
+                        edit_dis.strip(),
+                        edit_case.strip()
+                    )
+
+                    if current_tuple != st.session_state.get("rep_applied_fields"):
+                        html_updated, _, updated_info = populate_representative_invoice(
+                            patient_name=current_tuple[0],
+                            personal_number=current_tuple[1],
+                            admission_date=current_tuple[3],
+                            discharge_date=current_tuple[4],
+                            amount_gel=current_tuple[2],
+                            case_number=current_tuple[5],
+                        )
+                        st.session_state["rep_html"] = html_updated
+                        st.session_state["rep_info"] = updated_info
+                        st.session_state["rep_html_editor"] = html_updated
+                        st.session_state["rep_applied_fields"] = current_tuple
+                        st.session_state["rep_pdf"] = None
+
+                    st.caption(f"თანხის შეცვლისას +18% ({float(edit_amount) * 1.18:,.2f} GEL) და USD ეკვივალენტი გადაითვლება ავტომატურად.")
+
+                else:
+                    raw_val = st.session_state.get("rep_html_editor", st.session_state["rep_html"])
+                    edited_html = st.text_area("HTML რედაქტორი:", value=raw_val, height=450, key="rep_html_editor")
+                    if edited_html != st.session_state.get("rep_html"):
+                        st.session_state["rep_html"] = edited_html
+                        st.session_state["rep_pdf"] = None
 
                 st.markdown("### წინასწარი გადახედვა (Live Preview)")
                 components.html(st.session_state["rep_html"], height=800, scrolling=True)
 
-                if st.button("რედაქტირებული HTML-ის PDF-ად გარდაქმნა", type="primary", use_container_width=True, key="rep_convert_pdf"):
+                if st.button("რედაქტირებული ინვოისის PDF-ად გარდაქმნა", type="primary", use_container_width=True, key="rep_convert_pdf"):
                     with st.spinner("მიმდინარეობს PDF ფაილის გენერირება..."):
-                        pdf_created = html_to_pdf(st.session_state["rep_html"])
+                        if edit_mode.startswith("მონაცემთა ველები"):
+                            html_to_compile, _, updated_info = populate_representative_invoice(
+                                patient_name=st.session_state.get("edit_pname", "").strip().upper(),
+                                personal_number=st.session_state.get("edit_pid", "").strip(),
+                                admission_date=st.session_state.get("edit_adm", "").strip(),
+                                discharge_date=st.session_state.get("edit_dis", "").strip(),
+                                amount_gel=float(st.session_state.get("edit_amount", 0.0)),
+                                case_number=st.session_state.get("edit_case", "").strip(),
+                            )
+                            st.session_state["rep_html"] = html_to_compile
+                            st.session_state["rep_info"] = updated_info
+                        else:
+                            html_to_compile = st.session_state.get("rep_html_editor", st.session_state["rep_html"])
+                            st.session_state["rep_html"] = html_to_compile
+
+                        pdf_created = html_to_pdf(html_to_compile)
                         st.session_state["rep_pdf"] = pdf_created
                         st.success("PDF წარმატებით შეიქმნა!")
 
             # If PDF is ready (either direct or converted from editable HTML)
             if st.session_state.get("rep_pdf"):
                 pdf_data = st.session_state["rep_pdf"]
+                info = st.session_state["rep_info"]
                 st.success("ინვოისი მზადაა!")
 
                 # Metric summary
@@ -1470,6 +1542,7 @@ def run_streamlit():
                     with_excel=include_excel
                 )
                 st.session_state["trans_html"] = full_html
+                st.session_state["trans_html_editor"] = full_html
                 st.session_state["trans_excel_data"] = excel_data
                 st.session_state["trans_df_fields"] = df_fields
                 st.session_state["trans_df_tables"] = df_tables
@@ -1498,16 +1571,23 @@ def run_streamlit():
             st.subheader("თარგმნილი დოკუმენტის რედაქტირება")
             st.write("შეცვალეთ ნებისმიერი ტექსტი, დიაგნოზი ან მონაცემი ქვემოთ მოცემულ რედაქტორში, შემდეგ დააჭირეთ PDF-ად გარდაქმნას.")
 
-            edited_trans_html = st.text_area("HTML რედაქტორი:", value=st.session_state["trans_html"], height=400, key="trans_html_editor")
-            st.session_state["trans_html"] = edited_trans_html
+            if "trans_html_editor" not in st.session_state:
+                st.session_state["trans_html_editor"] = st.session_state["trans_html"]
+
+            edited_trans_html = st.text_area("HTML რედაქტორი:", value=st.session_state.get("trans_html_editor", st.session_state["trans_html"]), height=400, key="trans_html_editor")
+            if edited_trans_html != st.session_state.get("trans_html"):
+                st.session_state["trans_html"] = edited_trans_html
+                st.session_state["trans_pdf"] = None
 
             st.markdown("### წინასწარი გადახედვა (Live Preview)")
             components.html(st.session_state["trans_html"], height=800, scrolling=True)
 
             if st.button("რედაქტირებული დოკუმენტის PDF-ად გარდაქმნა", type="primary", use_container_width=True, key="btn_convert_trans_pdf"):
                 with st.spinner("მიმდინარეობს PDF ფაილის გენერირება..."):
-                    pdf_created = html_to_pdf(st.session_state["trans_html"])
+                    html_to_compile = st.session_state.get("trans_html_editor", st.session_state["trans_html"])
+                    pdf_created = html_to_pdf(html_to_compile)
                     st.session_state["trans_pdf"] = pdf_created
+                    st.session_state["trans_html"] = html_to_compile
                     st.success("PDF წარმატებით შეიქმნა!")
 
         if st.session_state.get("trans_pdf"):

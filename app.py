@@ -1197,6 +1197,41 @@ def run_cli(argv):
         print(f"  done in {time.time() - t0:.1f}s", flush=True)
 
 
+_EDITABLE_PREVIEW_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "components", "editable_preview")
+_editable_preview_comp = None
+
+
+def get_editable_preview_comp():
+    """Lazily initializes the editable preview Streamlit component."""
+    global _editable_preview_comp
+    if _editable_preview_comp is None:
+        try:
+            import streamlit.components.v1 as components
+            if os.path.exists(_EDITABLE_PREVIEW_DIR):
+                _editable_preview_comp = components.declare_component("editable_preview", path=_EDITABLE_PREVIEW_DIR)
+            else:
+                _editable_preview_comp = False
+        except Exception:
+            _editable_preview_comp = False
+    return _editable_preview_comp
+
+
+def render_editable_preview(html: str, key: str = "editable_doc_preview"):
+    """Renders the HTML document as an in-place editable preview with live visual editing."""
+    comp = get_editable_preview_comp()
+    if comp:
+        try:
+            val = comp(html=html, key=key)
+            if val and isinstance(val, str) and len(val.strip()) > 50:
+                return val
+        except Exception:
+            pass
+    # Fallback to standard components.html
+    import streamlit.components.v1 as components
+    components.html(html, height=850, scrolling=True)
+    return None
+
+
 def run_streamlit():
     import streamlit as st
     import streamlit.components.v1 as components
@@ -1334,7 +1369,11 @@ def run_streamlit():
 
                 edit_mode = st.radio(
                     "რედაქტირების რეჟიმი:",
-                    ["მონაცემთა ველები (სახელი, პირადი №, თანხა, თარიღები)", "HTML კოდის პირდაპირი რედაქტირება"],
+                    [
+                        "ინტერაქტიული გადახედვა (დოკუმენტში პირდაპირი ჩაწერა)",
+                        "მონაცემთა ველები (სახელი, პირადი №, თანხა, თარიღები)",
+                        "HTML კოდის პირდაპირი რედაქტირება",
+                    ],
                     horizontal=True,
                     key="rep_edit_mode"
                 )
@@ -1406,15 +1445,22 @@ def run_streamlit():
 
                     st.caption(f"ინვოისის თარიღი: **{edit_inv_date}** | თანხის შეცვლისას +18% ({float(edit_amount) * 1.18:,.2f} GEL) და USD ეკვივალენტი გადაითვლება ავტომატურად.")
 
-                else:
+                elif edit_mode.startswith("HTML კოდის"):
                     raw_val = st.session_state.get("rep_html_editor", st.session_state["rep_html"])
                     edited_html = st.text_area("HTML რედაქტორი:", value=raw_val, height=450, key="rep_html_editor")
                     if edited_html != st.session_state.get("rep_html"):
                         st.session_state["rep_html"] = edited_html
                         st.session_state["rep_pdf"] = None
 
+                else:
+                    st.info("დააწკაპუნეთ პირდაპირ დოკუმენტის ნებისმიერ ტექსტზე (პაციენტის სახელი, თარიღი, თანხა და სხვ.) და შეცვალეთ. ცვლილებები ავტომატურად შეინახება.")
+
                 st.markdown("### წინასწარი გადახედვა (Live Preview)")
-                components.html(st.session_state["rep_html"], height=800, scrolling=True)
+                updated_preview = render_editable_preview(st.session_state["rep_html"], key="rep_interactive_preview")
+                if updated_preview and updated_preview != st.session_state.get("rep_html"):
+                    st.session_state["rep_html"] = updated_preview
+                    st.session_state["rep_html_editor"] = updated_preview
+                    st.session_state["rep_pdf"] = None
 
                 if st.button("რედაქტირებული ინვოისის PDF-ად გარდაქმნა", type="primary", use_container_width=True, key="rep_convert_pdf"):
                     with st.spinner("მიმდინარეობს PDF ფაილის გენერირება..."):
@@ -1430,9 +1476,11 @@ def run_streamlit():
                             )
                             st.session_state["rep_html"] = html_to_compile
                             st.session_state["rep_info"] = updated_info
-                        else:
+                        elif edit_mode.startswith("HTML კოდის"):
                             html_to_compile = st.session_state.get("rep_html_editor", st.session_state["rep_html"])
                             st.session_state["rep_html"] = html_to_compile
+                        else:
+                            html_to_compile = st.session_state["rep_html"]
 
                         pdf_created = html_to_pdf(html_to_compile)
                         st.session_state["rep_pdf"] = pdf_created
@@ -1591,18 +1639,32 @@ def run_streamlit():
         if workflow_trans.startswith("ჯერ"):
             st.markdown("---")
             st.subheader("თარგმნილი დოკუმენტის რედაქტირება")
-            st.write("შეცვალეთ ნებისმიერი ტექსტი, დიაგნოზი ან მონაცემი ქვემოთ მოცემულ რედაქტორში, შემდეგ დააჭირეთ PDF-ად გარდაქმნას.")
+            st.write("შეცვალეთ ნებისმიერი ტექსტი, დიაგნოზი ან მონაცემი პირდაპირ გადახედვაში ან HTML კოდში, შემდეგ დააჭირეთ PDF-ად გარდაქმნას.")
 
-            if "trans_html_editor" not in st.session_state:
-                st.session_state["trans_html_editor"] = st.session_state["trans_html"]
+            edit_mode_trans = st.radio(
+                "რედაქტირების რეჟიმი:",
+                ["ინტერაქტიული გადახედვა (დოკუმენტში პირდაპირი ჩაწერა)", "HTML კოდის პირდაპირი რედაქტორი"],
+                horizontal=True,
+                key="trans_edit_mode"
+            )
 
-            edited_trans_html = st.text_area("HTML რედაქტორი:", value=st.session_state.get("trans_html_editor", st.session_state["trans_html"]), height=400, key="trans_html_editor")
-            if edited_trans_html != st.session_state.get("trans_html"):
-                st.session_state["trans_html"] = edited_trans_html
-                st.session_state["trans_pdf"] = None
+            if edit_mode_trans.startswith("HTML კოდის"):
+                if "trans_html_editor" not in st.session_state:
+                    st.session_state["trans_html_editor"] = st.session_state["trans_html"]
+
+                edited_trans_html = st.text_area("HTML რედაქტორი:", value=st.session_state.get("trans_html_editor", st.session_state["trans_html"]), height=400, key="trans_html_editor")
+                if edited_trans_html != st.session_state.get("trans_html"):
+                    st.session_state["trans_html"] = edited_trans_html
+                    st.session_state["trans_pdf"] = None
+            else:
+                st.info("დააწკაპუნეთ პირდაპირ დოკუმენტის ნებისმიერ ტექსტზე და შეცვალეთ. ცვლილებები ავტომატურად შეინახება.")
 
             st.markdown("### წინასწარი გადახედვა (Live Preview)")
-            components.html(st.session_state["trans_html"], height=800, scrolling=True)
+            updated_trans = render_editable_preview(st.session_state["trans_html"], key="trans_interactive_preview")
+            if updated_trans and updated_trans != st.session_state.get("trans_html"):
+                st.session_state["trans_html"] = updated_trans
+                st.session_state["trans_html_editor"] = updated_trans
+                st.session_state["trans_pdf"] = None
 
             if st.button("რედაქტირებული დოკუმენტის PDF-ად გარდაქმნა", type="primary", use_container_width=True, key="btn_convert_trans_pdf"):
                 with st.spinner("მიმდინარეობს PDF ფაილის გენერირება..."):

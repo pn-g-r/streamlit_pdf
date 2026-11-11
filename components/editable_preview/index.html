@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Editable Document Preview</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    .preview-header {
+      position: sticky;
+      top: 0;
+      z-index: 9999;
+      background: #1e293b;
+      color: #f8fafc;
+      padding: 10px 16px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+      border-radius: 8px 8px 0 0;
+    }
+    .preview-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .preview-info .indicator-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #22c55e;
+      display: inline-block;
+      box-shadow: 0 0 6px #22c55e;
+    }
+    .preview-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn {
+      appearance: none;
+      border: none;
+      padding: 7px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease-in-out;
+    }
+    .btn-save {
+      background: #16a34a;
+      color: #ffffff;
+    }
+    .btn-save:hover {
+      background: #15803d;
+    }
+    .btn-save:active {
+      transform: scale(0.98);
+    }
+    .btn-print {
+      background: #334155;
+      color: #f8fafc;
+    }
+    .btn-print:hover {
+      background: #475569;
+    }
+    .frame-wrapper {
+      background: #f8fafc;
+      padding: 8px 0;
+      min-height: 850px;
+    }
+    #docFrame {
+      width: 100%;
+      min-height: 850px;
+      border: 1px solid #cbd5e1;
+      border-top: none;
+      border-radius: 0 0 8px 8px;
+      background: #ffffff;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="preview-header">
+    <div class="preview-info">
+      <span class="indicator-dot"></span>
+      <span>ინტერაქტიული რედაქტირება: დააწკაპუნეთ ნებისმიერ ტექსტზე და შეცვალეთ</span>
+    </div>
+    <div class="preview-actions">
+      <button type="button" class="btn btn-print" id="printBtn" title="ბეჭდვა / PDF-ის პირდაპირ შენახვა ბრაუზერით">
+        ბეჭდვა / სწრაფი PDF
+      </button>
+      <button type="button" class="btn btn-save" id="saveBtn">
+        ცვლილებების შენახვა
+      </button>
+    </div>
+  </div>
+
+  <div class="frame-wrapper">
+    <iframe id="docFrame" frameborder="0" scrolling="no"></iframe>
+  </div>
+
+  <script>
+    const frame = document.getElementById("docFrame");
+    const saveBtn = document.getElementById("saveBtn");
+    const printBtn = document.getElementById("printBtn");
+
+    let lastLoadedHtml = "";
+    let lastSentHtml = "";
+    let isInitialized = false;
+
+    function setFrameHeight() {
+      try {
+        let contentH = 850;
+        if (frame.contentDocument && frame.contentDocument.documentElement) {
+          contentH = Math.max(
+            frame.contentDocument.documentElement.scrollHeight,
+            frame.contentDocument.body ? frame.contentDocument.body.scrollHeight : 850
+          );
+        }
+        frame.style.height = (contentH + 40) + "px";
+        const totalHeight = (contentH + 110);
+        window.parent.postMessage({
+          isStreamlitMessage: true,
+          type: "streamlit:setFrameHeight",
+          height: totalHeight
+        }, "*");
+      } catch (e) {
+        frame.style.height = "900px";
+      }
+    }
+
+    function sendToStreamlit(htmlVal) {
+      if (!htmlVal) return;
+      lastSentHtml = htmlVal;
+      window.parent.postMessage({
+        isStreamlitMessage: true,
+        type: "streamlit:setComponentValue",
+        value: htmlVal
+      }, "*");
+    }
+
+    function getCleanFrameHtml() {
+      try {
+        const doc = frame.contentDocument || frame.contentWindow.document;
+        if (!doc || !doc.documentElement) return "";
+        const clone = doc.cloneNode(true);
+        const helperStyle = clone.head ? clone.head.querySelector("#editorHelperStyle") : null;
+        if (helperStyle) helperStyle.remove();
+        const doctype = doc.doctype ? "<!DOCTYPE " + doc.doctype.name + ">\n" : "<!DOCTYPE html>\n";
+        return doctype + clone.documentElement.outerHTML;
+      } catch (e) {
+        console.error("Error extracting HTML:", e);
+        return "";
+      }
+    }
+
+    function saveCurrentEdits() {
+      const cleanHtml = getCleanFrameHtml();
+      if (cleanHtml) {
+        saveBtn.innerText = "ინახება...";
+        saveBtn.style.background = "#0284c7";
+        sendToStreamlit(cleanHtml);
+        setTimeout(() => {
+          saveBtn.innerText = "შენახულია";
+          saveBtn.style.background = "#16a34a";
+        }, 400);
+      }
+    }
+
+    function setupFrameDoc(doc) {
+      if (!doc || !doc.body) return;
+      try {
+        doc.body.contentEditable = "true";
+        doc.body.spellcheck = false;
+
+        if (doc.head && !doc.head.querySelector("#editorHelperStyle")) {
+          const style = doc.createElement("style");
+          style.id = "editorHelperStyle";
+          style.textContent = `
+            [contenteditable="true"] { outline: none; }
+            body { cursor: text !important; }
+            div:hover, td:hover, p:hover, span:hover {
+              outline: 1px dashed rgba(37, 99, 235, 0.4) !important;
+            }
+            div:focus, td:focus, p:focus, span:focus {
+              outline: 2px solid #2563eb !important;
+              background-color: rgba(37, 99, 235, 0.04) !important;
+            }
+          `;
+          doc.head.appendChild(style);
+        }
+
+        // Auto-save on blur
+        doc.body.addEventListener("blur", () => {
+          const current = getCleanFrameHtml();
+          if (current && current !== lastSentHtml) {
+            sendToStreamlit(current);
+          }
+        }, true);
+
+        // Resize frame when content grows
+        doc.body.addEventListener("input", () => {
+          setFrameHeight();
+        });
+
+      } catch (e) {
+        console.error("Error setting up frame document:", e);
+      }
+    }
+
+    function loadHtml(html) {
+      if (!html) return;
+      lastLoadedHtml = html;
+      frame.srcdoc = html;
+      frame.onload = () => {
+        try {
+          const doc = frame.contentDocument || frame.contentWindow.document;
+          setupFrameDoc(doc);
+          setTimeout(setFrameHeight, 150);
+        } catch (e) {
+          console.error("Frame onload error:", e);
+        }
+      };
+    }
+
+    // Handle messages from Streamlit
+    window.addEventListener("message", (event) => {
+      if (!event.data) return;
+      if (event.data.type === "streamlit:render") {
+        const args = event.data.args;
+        if (args && args.html) {
+          // If content is new and wasn't just sent by this component, load it
+          if (!isInitialized || (args.html !== lastLoadedHtml && args.html !== lastSentHtml)) {
+            loadHtml(args.html);
+            isInitialized = true;
+          }
+        }
+        setTimeout(setFrameHeight, 200);
+      }
+    });
+
+    saveBtn.addEventListener("click", saveCurrentEdits);
+
+    printBtn.addEventListener("click", () => {
+      try {
+        if (frame.contentWindow) {
+          frame.contentWindow.focus();
+          frame.contentWindow.print();
+        }
+      } catch (e) {
+        alert("ბეჭდვის შეცდომა: " + e.message);
+      }
+    });
+
+    // Notify Streamlit ready
+    window.parent.postMessage({
+      isStreamlitMessage: true,
+      type: "streamlit:componentReady",
+      apiVersion: 1
+    }, "*");
+
+    window.addEventListener("resize", () => {
+      setTimeout(setFrameHeight, 100);
+    });
+  </script>
+</body>
+</html>

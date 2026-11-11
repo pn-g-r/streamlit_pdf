@@ -22,6 +22,7 @@ import re
 import statistics
 import sys
 import time
+import urllib.request
 
 from dotenv import load_dotenv
 
@@ -102,6 +103,18 @@ class UniversalDocumentData(BaseModel):
     document_title: str = Field(description="Document title in English")
     fields: list[UniversalField] = Field(description="All metadata fields and numbered points")
     tables: list[UniversalTableRow] = Field(description="All table rows")
+
+
+class InvoiceExtractedData(BaseModel):
+    patient_name_ge: str = Field(description="Patient full name in Georgian")
+    patient_name_en: str = Field(description="Patient full name transliterated to English/Latin uppercase (e.g. TATIANA ALIEVA)")
+    personal_number: str = Field(description="Personal ID number (პირადი ნომერი, პ/ნ)")
+    amount: float = Field(description="Total invoice amount in GEL (თანხა)")
+
+
+class Forma100ExtractedDates(BaseModel):
+    admission_date: str = Field(description="Date and time of hospitalization/admission (სტაციონარში მოთავსების თარიღი, e.g. 13-09-2026 14:38)")
+    discharge_date: str = Field(description="Date and time of discharge (გაწერის თარიღი, e.g. 23-09-2026 09:00)")
 
 
 # ---------------------------------------------------------------------------
@@ -975,6 +988,154 @@ def process_document(pdf_bytes, progress=None, with_excel=False):
 
 
 # ---------------------------------------------------------------------------
+# Representative Invoice (Extraction from Georgian Invoice + Form 100)
+# ---------------------------------------------------------------------------
+def get_usd_exchange_rate():
+    """Fetch live GEL -> USD rate from free public currency APIs with reliable fallback."""
+    try:
+        req = urllib.request.Request("https://open.er-api.com/v6/latest/GEL", headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return float(data["rates"]["USD"])
+    except Exception:
+        pass
+    try:
+        req = urllib.request.Request("https://api.exchangerate-api.com/v4/latest/GEL", headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return float(data["rates"]["USD"])
+    except Exception:
+        return 0.385
+
+
+def extract_invoice_and_forma100_data(client, invoice_pdf_bytes, forma100_pdf_bytes):
+    """Extract patient info & amount from Georgian invoice, and hospitalization dates from Form 100."""
+    ctx = None
+    try:
+        from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx, add_script_run_ctx
+        ctx = get_script_run_ctx()
+    except Exception:
+        add_script_run_ctx = None
+
+    def _worker_inv():
+        if ctx and add_script_run_ctx:
+            add_script_run_ctx(ctx=ctx)
+        resp = client.models.generate_content(
+            model=MODEL,
+            contents=[
+                types.Part.from_bytes(data=invoice_pdf_bytes, mime_type="application/pdf"),
+                "Extract patient full name (transliterate to standard Latin uppercase letters), personal ID number (პირადი ნომერი, პ/ნ), and total invoice amount (თანხა) in GEL.",
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=InvoiceExtractedData,
+                temperature=0.0,
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
+            ),
+        )
+        return json.loads(resp.text)
+
+    def _worker_f100():
+        if ctx and add_script_run_ctx:
+            add_script_run_ctx(ctx=ctx)
+        resp = client.models.generate_content(
+            model=MODEL,
+            contents=[
+                types.Part.from_bytes(data=forma100_pdf_bytes, mime_type="application/pdf"),
+                "From Item 8 (თარიღები) of this Form 100 medical certificate, extract the exact hospitalization/admission date and time (სტაციონარში მოთავსების თარიღი) and discharge date and time (გაწერის თარიღი).",
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=Forma100ExtractedDates,
+                temperature=0.0,
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
+            ),
+        )
+        return json.loads(resp.text)
+
+    with cf.ThreadPoolExecutor(max_workers=2) as ex:
+        f_inv = ex.submit(_worker_inv)
+        f_f100 = ex.submit(_worker_f100)
+        inv_data = f_inv.result()
+        f100_data = f_f100.result()
+
+    return {
+        "patient_name_ge": inv_data.get("patient_name_ge", "").strip(),
+        "patient_name_en": inv_data.get("patient_name_en", "").strip().upper(),
+        "personal_number": str(inv_data.get("personal_number", "")).strip(),
+        "amount_gel": float(inv_data.get("amount", 0.0)),
+        "admission_date": f100_data.get("admission_date", "").strip(),
+        "discharge_date": f100_data.get("discharge_date", "").strip(),
+    }
+
+
+def populate_representative_invoice(
+    patient_name: str,
+    personal_number: str,
+    admission_date: str,
+    discharge_date: str,
+    amount_gel: float,
+    case_number: str = "[blank]",
+    template_path: str = None,
+):
+    """Populates representative_invoice.html and compiles it to PDF."""
+    if not template_path:
+        template_path = os.path.join(os.path.dirname(__file__), "representative_invoice.html")
+
+    with open(template_path, "r", encoding="utf-8") as f:
+        html = f.read()
+
+    # Calculations: Price = Amount * 1.18, Amount = Price
+    price_gel = round(amount_gel * 1.18, 2)
+    rate_usd = get_usd_exchange_rate()
+    price_usd = round(price_gel * rate_usd, 2)
+
+    price_gel_str = f"{price_gel:,.2f}"
+    price_usd_str = f"{price_usd:,.2f}"
+
+    # Replace Metadata fields
+    html = re.sub(r"<div>Patient:\s*[^<]*</div>", f"<div>Patient: {patient_name}</div>", html)
+    html = re.sub(r"<div>Personal Number:\s*[^<]*</div>", f"<div>Personal Number: {personal_number}</div>", html)
+    html = re.sub(r"<div>Case number:\s*[^<]*</div>", f"<div>Case number: {case_number}</div>", html)
+    html = re.sub(r"<div>admission:\s*[^<]*</div>", f"<div>admission: {admission_date}</div>", html)
+    html = re.sub(r"<div>Discharge:\s*[^<]*</div>", f"<div>Discharge: {discharge_date}</div>", html)
+
+    # Replace Table Row (Name = Patient Name, Unit = Unit, Qty = 1, Price = price_gel, Amount = price_gel)
+    new_tbody = f"""<tbody>
+        <tr>
+          <td class="col-name">{patient_name}</td>
+          <td class="col-unit">Unit</td>
+          <td class="col-qty">1</td>
+          <td class="col-price">{price_gel_str}</td>
+          <td class="col-amount">{price_gel_str}</td>
+        </tr>
+      </tbody>"""
+    html = re.sub(r"<tbody>.*?</tbody>", new_tbody, html, flags=re.DOTALL)
+
+    # Replace Totals (GEL and USD)
+    new_totals = f"""<td class="totals-cell">
+          <div>{price_gel_str} GEL</div>
+          <div>{price_usd_str} USD</div>
+        </td>"""
+    html = re.sub(r'<td class="totals-cell">.*?</td>', new_totals, html, flags=re.DOTALL)
+
+    pdf_bytes = html_to_pdf(html)
+    return html, pdf_bytes, {
+        "patient_name": patient_name,
+        "personal_number": personal_number,
+        "case_number": case_number,
+        "admission_date": admission_date,
+        "discharge_date": discharge_date,
+        "amount_gel": amount_gel,
+        "price_gel": price_gel,
+        "price_gel_str": price_gel_str,
+        "rate_usd": rate_usd,
+        "price_usd": price_usd,
+        "price_usd_str": price_usd_str,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Entry points
 # ---------------------------------------------------------------------------
 def run_cli(argv):
@@ -983,6 +1144,31 @@ def run_cli(argv):
         i = argv.index("--out")
         out_dir = argv[i + 1]
         argv = argv[:i] + argv[i + 2:]
+    
+    if "--rep-invoice" in argv:
+        i = argv.index("--rep-invoice")
+        inv_file = argv[i + 1]
+        f100_file = argv[i + 2]
+        os.makedirs(out_dir, exist_ok=True)
+        print(f"Generating representative invoice from {inv_file} and {f100_file}...")
+        api_key = os.environ.get("GEMINI_API_KEY")
+        client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
+        with open(inv_file, "rb") as f1, open(f100_file, "rb") as f2:
+            extracted = extract_invoice_and_forma100_data(client, f1.read(), f2.read())
+        html_rep, pdf_rep, info = populate_representative_invoice(
+            patient_name=extracted["patient_name_en"],
+            personal_number=extracted["personal_number"],
+            admission_date=extracted["admission_date"],
+            discharge_date=extracted["discharge_date"],
+            amount_gel=extracted["amount_gel"],
+        )
+        safe_pname = re.sub(r'[\s]+', '_', info['patient_name'])
+        pdf_path = os.path.join(out_dir, f"Invoice_{safe_pname}_EN.pdf")
+        with open(pdf_path, "wb") as fh:
+            fh.write(pdf_rep)
+        print(f"  done! Saved {pdf_path}")
+        return
+
     with_excel = "--excel" in argv
     files = [a for a in argv if a.lower().endswith(".pdf")]
     os.makedirs(out_dir, exist_ok=True)
@@ -1006,7 +1192,7 @@ def run_streamlit():
     import streamlit as st
     import streamlit.components.v1 as components
 
-    st.set_page_config(page_title="სამედიცინო დოკუმენტების მთარგმნელი", layout="wide", initial_sidebar_state="expanded")
+    st.set_page_config(page_title="სამედიცინო დოკუმენტების სისტემა", layout="wide", initial_sidebar_state="expanded")
 
     saved_key = os.environ.get("GEMINI_API_KEY", "")
     if not saved_key:
@@ -1026,46 +1212,159 @@ def run_streamlit():
             os.environ["GEMINI_API_KEY"] = user_key
 
         st.markdown("---")
-        st.markdown("### სატესტო დოკუმენტები")
-        sample_dir = os.path.join(os.path.dirname(__file__), "sample_documents")
-        sample_files = []
-        if os.path.exists(sample_dir):
-            sample_files = [f for f in os.listdir(sample_dir) if f.lower().endswith(".pdf")]
-        
-        selected_sample = None
-        if sample_files:
-            chosen = st.selectbox("სწრაფი ტესტირება ნიმუშით:", ["არცერთი (ავტვირთავ ჩემს ფაილს)"] + sample_files, key="side_sample")
-            if chosen != "არცერთი (ავტვირთავ ჩემს ფაილს)":
-                selected_sample = os.path.join(sample_dir, chosen)
-                st.caption(f"ჩატვირთულია: `{chosen}`")
-
-        st.markdown("---")
-        st.info("**ქართული -> ინგლისური**\n\nთარგმნის სამედიცინო ინვოისებს, ფორმა № IV-100/ა ცნობებსა და ლაბორატორიულ კვლევებს საერთაშორისო სტანდარტის ინგლისურ PDF დოკუმენტად.")
+        st.info("**ქართული -> ინგლისური**\n\nსამედიცინო დოკუმენტების თარგმანი და ინგლისური ინვოისების ავტომატური გენერირება საერთაშორისო სტანდარტით.")
         st.markdown("<div style='text-align: center; color: #64748b; font-size: 0.85em; margin-top: 15px;'>Made by Gigi</div>", unsafe_allow_html=True)
-
-    st.title("სამედიცინო დოკუმენტების მთარგმნელი")
-    st.write("ქართული სამედიცინო დოკუმენტების პროფესიონალური ინგლისური თარგმანი ოფიციალური ფორმატით და დახვეწილი დიზაინით.")
 
     def _render_footer():
         st.markdown("<br><hr style='border: none; border-top: 1px solid #e2e8f0; margin: 30px 0 10px 0;'><div style='text-align: center; color: #64748b; font-size: 0.9em; font-weight: 500;'>Made by Gigi</div>", unsafe_allow_html=True)
 
-    # Input selection: upload or sample
+    st.title("სამედიცინო დოკუმენტების დამუშავება და თარგმანი")
+
+    app_mode = st.radio(
+        "აირჩიეთ სამუშაო რეჟიმი:",
+        [
+            "ინგლისური ინვოისის გენერირება (ინვოისი + ფორმა 100)",
+            "სამედიცინო დოკუმენტის სრული თარგმანი (PDF / Excel)",
+        ],
+        horizontal=True,
+        key="app_mode_choice"
+    )
+
+    if app_mode == "ინგლისური ინვოისის გენერირება (ინვოისი + ფორმა 100)":
+        st.write("ატვირთეთ ქართული ინვოისი და ფორმა №100. სისტემა ამოიღებს პაციენტის მონაცემებს, თარიღებს, გამოთვლის საბოლოო თანხას (+18%) და გენერირებს ოფიციალურ ინგლისურ ინვოისს.")
+        
+        col1, col2 = st.columns(2)
+        inv_bytes, f100_bytes = None, None
+        with col1:
+            up_inv = st.file_uploader("ატვირთეთ ქართული ინვოისი (PDF)", type=["pdf"], key="rep_inv_uploader")
+            if up_inv:
+                inv_bytes = up_inv.read()
+        with col2:
+            up_f100 = st.file_uploader("ატვირთეთ ფორმა № IV-100/ა (PDF)", type=["pdf"], key="rep_f100_uploader")
+            if up_f100:
+                f100_bytes = up_f100.read()
+
+        if not inv_bytes or not f100_bytes:
+            st.info("დასაწყებად ატვირთეთ ორივე დოკუმენტი (ინვოისი და ფორმა 100).")
+            _render_footer()
+            return
+
+        if not st.button("ინგლისური ინვოისის გენერირება", type="primary", use_container_width=True, key="btn_run_rep"):
+            _render_footer()
+            return
+
+        if not os.environ.get("GEMINI_API_KEY"):
+            st.error("Gemini API გასაღები ვერ მოიძებნა! გთხოვთ, შეიყვანოთ გასაღები გვერდითა მენიუში ან მიუთითოთ Streamlit Secrets-ში.")
+            return
+
+        t0 = time.time()
+        client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"), http_options={"api_version": "v1beta"})
+        try:
+            with st.spinner("მიმდინარეობს მონაცემების ექსტრაქცია და ინვოისის შედგენა..."):
+                extracted = extract_invoice_and_forma100_data(client, inv_bytes, f100_bytes)
+                html_rep, pdf_rep, info = populate_representative_invoice(
+                    patient_name=extracted["patient_name_en"],
+                    personal_number=extracted["personal_number"],
+                    admission_date=extracted["admission_date"],
+                    discharge_date=extracted["discharge_date"],
+                    amount_gel=extracted["amount_gel"],
+                    case_number="[blank]",
+                )
+        except Exception as exc:
+            st.error(f"შეცდომა ინვოისის გენერირებისას: {str(exc)}")
+            import traceback
+            st.code(traceback.format_exc(), language="python")
+            return
+
+        duration = time.time() - t0
+        st.success(f"ინვოისი წარმატებით შეიქმნა {duration:.1f} წამში!")
+
+        # Metric summary
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("პაციენტი", info["patient_name"])
+        m2.metric("პირადი ნომერი", info["personal_number"])
+        m3.metric("თანხა GEL (+18%)", f"{info['price_gel_str']} GEL")
+        m4.metric("თანხა USD", f"{info['price_usd_str']} USD")
+
+        st.caption(f"სტაციონარში მოთავსება: **{info['admission_date']}** | გაწერა: **{info['discharge_date']}** | კურსი: 1 GEL = {info['rate_usd']:.4f} USD")
+
+        # Download button
+        safe_pname = re.sub(r'[\s]+', '_', info['patient_name'])
+        st.download_button(
+            "ინგლისური ინვოისის ჩამოტვირთვა (PDF)",
+            data=pdf_rep,
+            file_name=f"Invoice_{safe_pname}_EN.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            key="dl_rep_pdf"
+        )
+
+        # iOS Safari link
+        b64_pdf = base64.b64encode(pdf_rep).decode("ascii")
+        components.html(
+            f"""
+            <div style="margin: 4px 0 10px 0; text-align: center;">
+                <a id="iosOpenBtn" href="#" target="_blank" style="
+                    display: block;
+                    background: linear-gradient(135deg, #1e3a8a, #2563eb);
+                    color: #ffffff;
+                    text-align: center;
+                    padding: 13px 20px;
+                    border-radius: 8px;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    font-size: 15px;
+                    font-weight: 600;
+                    text-decoration: none;
+                    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+                ">დააჭირეთ აქ PDF-ის პირდაპირ სანახავად / შესანახად (ტელეფონი / Safari)</a>
+            </div>
+            <script>
+            try {{
+                const b64 = "{b64_pdf}";
+                const byteChars = atob(b64);
+                const byteNums = new Array(byteChars.length);
+                for (let i = 0; i < byteChars.length; i++) {{
+                    byteNums[i] = byteChars.charCodeAt(i);
+                }}
+                const byteArray = new Uint8Array(byteNums);
+                const blob = new Blob([byteArray], {{ type: 'application/pdf' }});
+                const blobUrl = URL.createObjectURL(blob);
+                const btn = document.getElementById("iosOpenBtn");
+                btn.href = blobUrl;
+            }} catch(e) {{
+                console.error("Blob URL generation error:", e);
+            }}
+            </script>
+            """,
+            height=65
+        )
+
+        st.markdown("### დოკუმენტის გადახედვა")
+        tab_v1, tab_v2 = st.tabs(["ინვოისის გადახედვა", "HTML კოდი"])
+        with tab_v1:
+            components.html(html_rep, height=850, scrolling=True)
+        with tab_v2:
+            st.code(html_rep, language="html")
+
+        _render_footer()
+        return
+
+    # -----------------------------------------------------------------------
+    # Mode 2: Existing Document Translation
+    # -----------------------------------------------------------------------
+    st.write("ქართული სამედიცინო დოკუმენტების პროფესიონალური ინგლისური თარგმანი ოფიციალური ფორმატით და დახვეწილი დიზაინით.")
+
+    # Input selection: upload file
     pdf_bytes = None
     file_name = "translated_document"
 
-    if selected_sample and os.path.exists(selected_sample):
-        with open(selected_sample, "rb") as sf:
-            pdf_bytes = sf.read()
-        file_name = os.path.basename(selected_sample)
-        st.success(f"არჩეულია სატესტო დოკუმენტი: **{file_name}**")
-    else:
-        uploaded_file = st.file_uploader("ატვირთეთ სამედიცინო PDF (ინვოისი, ფორმა №100, ლაბორატორიული კვლევა)", type=["pdf"])
-        if uploaded_file is not None:
-            pdf_bytes = uploaded_file.read()
-            file_name = uploaded_file.name
+    uploaded_file = st.file_uploader("ატვირთეთ სამედიცინო PDF (ინვოისი, ფორმა №100, ლაბორატორიული კვლევა)", type=["pdf"], key="full_trans_uploader")
+    if uploaded_file is not None:
+        pdf_bytes = uploaded_file.read()
+        file_name = uploaded_file.name
 
     if not pdf_bytes:
-        st.info("დასაწყებად ატვირთეთ სამედიცინო PDF ფაილი ან აირჩიეთ ნიმუში მარცხენა მენიუდან.")
+        st.info("დასაწყებად ატვირთეთ სამედიცინო PDF ფაილი.")
         _render_footer()
         return
 
@@ -1182,7 +1481,7 @@ def run_streamlit():
     _render_footer()
 
 
-if "--cli" in sys.argv:
+if len(sys.argv) > 1 and ("--cli" in sys.argv or "--rep-invoice" in sys.argv):
     run_cli(sys.argv[1:])
 else:
     run_streamlit()
